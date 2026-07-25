@@ -23,7 +23,7 @@ from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitic
 from dashboard.generate import generate as generate_dashboard
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
-from pipeline.resolve import resolve
+from pipeline.resolve import resolve_with_fetch_fallback
 from store.jsonl import append_items, append_rejections
 
 
@@ -78,7 +78,7 @@ def main() -> None:
         print(f"  collecting: {candidate['name']}")
         raw_items = backfill_collect(candidate, days)
         for item in raw_items:
-            resolved, reason = resolve(item, candidate)
+            resolved, reason = resolve_with_fetch_fallback(item, candidate)
             if resolved is not None:
                 resolved_items.append(_backdate(resolved))
             else:

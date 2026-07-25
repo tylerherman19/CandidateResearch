@@ -26,6 +26,9 @@ District") that a false positive is implausible -- unlike generic geography
 """
 
 import re
+import sys
+
+from pipeline.fetch_text import can_fetch_direct, fetch_article_text
 
 PROXIMITY_WORDS = 200
 
@@ -86,3 +89,37 @@ def resolve(item: dict, candidate: dict):
                 return resolved, None
 
     return None, "require_any_present_but_outside_200_words"
+
+
+def resolve_with_fetch_fallback(item: dict, candidate: dict):
+    """Same contract as resolve(), but if the title/snippet-only pass would
+    reject the item AND the collector gives us a real, direct article URL
+    (see fetch_text.py -- true for GDELT, not for Google News' obfuscated
+    redirect links), fetches the actual page and retries matching against
+    its real body text before giving up. This is what catches a genuine
+    name mention that only exists in the article body, which collectors
+    like GDELT never give us in the RSS/API response itself."""
+    resolved, reason = resolve(item, candidate)
+    if resolved is not None:
+        return resolved, reason
+
+    if not can_fetch_direct(item.get("collector", "")):
+        return None, reason
+
+    fetched_text = fetch_article_text(item.get("source_url", ""))
+    if not fetched_text:
+        return None, reason
+
+    enriched = dict(item)
+    enriched["text"] = fetched_text
+    resolved2, reason2 = resolve(enriched, candidate)
+    if resolved2 is not None:
+        resolved2["fetched_full_text"] = True
+        print(
+            f"  [info] rescued by full-text fetch: {item.get('title', '')[:60]!r} "
+            f"(was: {reason})",
+            file=sys.stderr,
+        )
+        return resolved2, None
+
+    return None, reason

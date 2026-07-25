@@ -13,7 +13,7 @@ from digest.render import render_digest
 from digest.send import send_digest
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
-from pipeline.resolve import resolve
+from pipeline.resolve import resolve_with_fetch_fallback
 from pipeline.velocity import check_velocity
 from store.jsonl import append_items, append_rejections
 
@@ -74,7 +74,7 @@ def run_sweep(candidates: list):
                 continue
 
             for item in raw_items:
-                resolved, reason = resolve(item, candidate)
+                resolved, reason = resolve_with_fetch_fallback(item, candidate)
                 if resolved is not None:
                     resolved_items.append(resolved)
                 else:
