@@ -42,15 +42,15 @@ def _get(params: dict):
     return resp
 
 
-def collect(candidate: dict) -> list:
+def collect(candidate: dict, days: int = 1, maxrecords: int = 50) -> list:
     time.sleep(REQUEST_INTERVAL_SECONDS)
     query = f'"{candidate["name"]}" Wisconsin sourcelang:eng'
     params = {
         "query": query,
         "mode": "artlist",
-        "maxrecords": 50,
+        "maxrecords": maxrecords,
         "format": "json",
-        "timespan": "1d",
+        "timespan": f"{days}d",
     }
 
     resp = _get(params)

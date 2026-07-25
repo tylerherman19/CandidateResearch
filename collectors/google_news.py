@@ -13,8 +13,8 @@ RSS_URL = "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:e
 TIMEOUT_SECONDS = 15
 
 
-def collect(candidate: dict) -> list:
-    query = f'"{candidate["name"]}" Wisconsin when:1d'
+def collect(candidate: dict, days: int = 1) -> list:
+    query = f'"{candidate["name"]}" Wisconsin when:{days}d'
     url = RSS_URL.format(query=quote(query))
 
     resp = requests.get(

@@ -1,10 +1,8 @@
 """Builds a static, self-contained, searchable/sortable HTML dashboard from
-the current data/*.jsonl files. No server, no network requests -- open
-dashboard/index.html directly in a browser (file:// works fine).
-
-This is a view of Phase 1 data only: raw accepted/rejected items. It has no
-stance/topic/cluster-size/velocity columns because those are Phase 2-4
-outputs (classification, dedupe, alerting) that don't exist yet.
+the current data/*.jsonl files, plus a daily-volume chart per candidate.
+No server, no network requests -- everything (data + charting) is inlined,
+so it works as a plain static file (used for both local viewing and
+GitHub Pages, which serves it from docs/index.html).
 """
 
 import json
@@ -16,7 +14,15 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_PATH = PROJECT_ROOT / "config" / "candidates.yaml"
-OUTPUT_PATH = Path(__file__).resolve().parent / "index.html"
+OUTPUT_PATH = PROJECT_ROOT / "docs" / "index.html"
+
+# Categorical palette, fixed order (dataviz skill reference palette) -- 3
+# candidates fits comfortably in slots 1-3 (blue/green/magenta).
+SERIES_COLORS = [
+    {"light": "#2a78d6", "dark": "#3987e5"},
+    {"light": "#008300", "dark": "#008300"},
+    {"light": "#e87ba4", "dark": "#d55181"},
+]
 
 
 def _load_jsonl(path: Path) -> list:
@@ -31,14 +37,14 @@ def _load_jsonl(path: Path) -> list:
     return records
 
 
-def _load_candidate_map() -> dict:
+def _load_candidates_full() -> list:
     with CONFIG_PATH.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return {c["id"]: {"name": c["name"], "office": c["office"]} for c in data["candidates"]}
+    return data["candidates"]
 
 
 def load_records() -> list:
-    candidates = _load_candidate_map()
+    candidates = {c["id"]: c for c in _load_candidates_full()}
     records = []
 
     for path in sorted(DATA_DIR.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9].jsonl")):
@@ -61,6 +67,9 @@ def load_records() -> list:
                     "risk_level": item.get("risk_level", ""),
                     "cluster_size": item.get("cluster_size", 1),
                     "classified_by": item.get("classified_by", ""),
+                    "matched_on": item.get("matched_alias", ""),
+                    "matched_context": item.get("matched_require_any", ""),
+                    "backfilled": bool(item.get("backfilled", False)),
                 }
             )
 
@@ -84,6 +93,9 @@ def load_records() -> list:
                     "risk_level": "",
                     "cluster_size": 1,
                     "classified_by": "",
+                    "matched_on": "",
+                    "matched_context": "",
+                    "backfilled": False,
                 }
             )
 
@@ -98,33 +110,45 @@ TEMPLATE = """<!doctype html>
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --border: #e5e7eb;
-    --accept: #15803d; --accept-bg: #dcfce7;
-    --reject: #b91c1c; --reject-bg: #fee2e2;
-    --row-hover: #f3f4f6; --input-bg: #ffffff;
+    --bg: #fcfcfb; --page: #f9f9f7; --fg: #0b0b0b; --muted: #898781; --secondary: #52514e;
+    --border: #e1e0d9; --axis: #c3c2b7;
+    --accept: #0ca30c; --accept-bg: #e3f7e3;
+    --reject: #d03b3b; --reject-bg: #fbe7e6;
+    --row-hover: #f3f3f1; --input-bg: #ffffff; --card-bg: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1115; --fg: #e5e7eb; --muted: #9ca3af; --border: #2a2d34;
-      --accept: #4ade80; --accept-bg: #14301f;
-      --reject: #f87171; --reject-bg: #3a1414;
-      --row-hover: #1a1d24; --input-bg: #1a1d24;
+      --bg: #1a1a19; --page: #0d0d0d; --fg: #ffffff; --muted: #898781; --secondary: #c3c2b7;
+      --border: #2c2c2a; --axis: #383835;
+      --accept: #0ca30c; --accept-bg: #123312;
+      --reject: #e66767; --reject-bg: #3a1414;
+      --row-hover: #232322; --input-bg: #1a1a19; --card-bg: #1a1a19;
     }
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 1.5rem; background: var(--bg); color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0; padding: 1.5rem; background: var(--page); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 14px;
   }
   h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }
+  h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--fg); }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+  }
   .summary { display: flex; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
   .stat { font-size: 0.85rem; color: var(--muted); }
-  .stat b { color: var(--fg); font-size: 1rem; }
-  .controls {
-    display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap;
-  }
+  .stat b { color: var(--fg); font-size: 1.1rem; font-weight: 600; }
+  .names-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+  .name-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; }
+  .name-card .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.4rem; }
+  .name-card .cname { font-weight: 600; }
+  .name-card .office { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+  .name-card .aliases { color: var(--secondary); font-size: 0.78rem; margin-top: 0.35rem; }
+  .name-card .aliases b { color: var(--fg); font-weight: 600; }
+  .controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
   input[type=text], select {
     padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
     background: var(--input-bg); color: var(--fg); font-size: 0.85rem;
@@ -138,7 +162,7 @@ TEMPLATE = """<!doctype html>
   }
   th {
     cursor: pointer; user-select: none; color: var(--muted);
-    font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em;
+    font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em;
     position: sticky; top: 0; background: var(--bg);
   }
   th:hover { color: var(--fg); }
@@ -146,17 +170,50 @@ TEMPLATE = """<!doctype html>
   tbody tr:hover { background: var(--row-hover); }
   .badge {
     display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
-    font-size: 0.72rem; font-weight: 600;
+    font-size: 0.7rem; font-weight: 600;
   }
   .badge.accepted { color: var(--accept); background: var(--accept-bg); }
   .badge.rejected { color: var(--reject); background: var(--reject-bg); }
+  .badge.backfilled { color: var(--secondary); background: var(--border); margin-left: 0.3rem; }
   a { color: inherit; }
   .empty { color: var(--muted); padding: 2rem; text-align: center; }
+  .chart-wrap { position: relative; }
+  .chart-legend { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .chart-legend .key { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--secondary); }
+  .chart-legend .key .line { width: 14px; height: 2px; border-radius: 1px; }
+  .chart-tooltip {
+    position: absolute; pointer-events: none; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    display: none; min-width: 140px; z-index: 5;
+  }
+  .chart-tooltip .date { color: var(--muted); font-size: 0.72rem; margin-bottom: 0.3rem; }
+  .chart-tooltip .row { display: flex; align-items: center; gap: 0.4rem; justify-content: space-between; }
+  .chart-tooltip .row .line { width: 10px; height: 2px; flex-shrink: 0; }
+  .chart-tooltip .row .val { font-weight: 600; margin-left: auto; }
+  .chart-tooltip .row .lbl { color: var(--secondary); }
+  svg text { fill: var(--muted); font-size: 10px; }
+  .crosshair { stroke: var(--axis); stroke-width: 1; }
 </style>
 </head>
 <body>
 <h1>Candidate Research Monitor</h1>
-<div class="subtitle">Phase 1 raw data — no classification, dedupe, or velocity signals yet. Generated __GENERATED_AT__.</div>
+<div class="subtitle">Generated __GENERATED_AT__ &middot; __BACKFILL_NOTE__</div>
+
+<div class="card">
+  <h2>Tracked names</h2>
+  <div class="names-grid">
+    __NAME_CARDS__
+  </div>
+</div>
+
+<div class="card">
+  <h2>Daily hit volume (accepted items, by publish date)</h2>
+  <div class="chart-legend" id="chart-legend"></div>
+  <div class="chart-wrap">
+    <svg id="chart" viewBox="0 0 900 260" width="100%" height="260" preserveAspectRatio="none"></svg>
+    <div class="chart-tooltip" id="chart-tooltip"></div>
+  </div>
+</div>
 
 <div class="summary">
   <div class="stat"><b id="stat-total">0</b> total</div>
@@ -165,7 +222,7 @@ TEMPLATE = """<!doctype html>
 </div>
 
 <div class="controls">
-  <input type="text" id="search" placeholder="Search title, source, candidate, reason...">
+  <input type="text" id="search" placeholder="Search title, source, candidate, reason, matched name...">
   <select id="filter-status">
     <option value="all">All statuses</option>
     <option value="accepted">Accepted</option>
@@ -185,6 +242,7 @@ TEMPLATE = """<!doctype html>
       <th data-key="source">Source</th>
       <th data-key="collector">Collector</th>
       <th data-key="published_at">Published</th>
+      <th data-key="matched_on">Matched name</th>
       <th data-key="topic">Topic</th>
       <th data-key="stance">Stance</th>
       <th data-key="risk_level">Risk</th>
@@ -197,8 +255,11 @@ TEMPLATE = """<!doctype html>
 <div class="empty" id="empty-state" style="display:none">No rows match.</div>
 
 <script type="application/json" id="data">__DATA_JSON__</script>
+<script type="application/json" id="series-colors">__SERIES_COLORS_JSON__</script>
 <script>
 const records = JSON.parse(document.getElementById('data').textContent);
+const seriesColors = JSON.parse(document.getElementById('series-colors').textContent);
+const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 const candidateSelect = document.getElementById('filter-candidate');
 const candidateNames = [...new Set(records.map(r => r.candidate_name))].sort();
@@ -222,7 +283,7 @@ function render() {
     if (state.status !== 'all' && r.status !== state.status) return false;
     if (state.candidate !== 'all' && r.candidate_name !== state.candidate) return false;
     if (state.search) {
-      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance]
+      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance, r.matched_on]
         .join(' ').toLowerCase();
       if (!hay.includes(state.search.toLowerCase())) return false;
     }
@@ -244,12 +305,13 @@ function render() {
   const tbody = document.getElementById('rows');
   tbody.innerHTML = rows.map(r => `
     <tr>
-      <td><span class="badge ${r.status}">${r.status}</span></td>
+      <td><span class="badge ${r.status}">${r.status}</span>${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}</td>
       <td>${escapeHtml(r.candidate_name)}</td>
       <td>${r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>` : escapeHtml(r.title)}</td>
       <td>${escapeHtml(r.source)}</td>
       <td>${escapeHtml(r.collector)}</td>
       <td>${escapeHtml((r.published_at || '').slice(0, 10))}</td>
+      <td>${escapeHtml(r.matched_on)}</td>
       <td>${escapeHtml(r.topic)}</td>
       <td>${escapeHtml(r.stance)}</td>
       <td>${escapeHtml(r.risk_level)}</td>
@@ -284,6 +346,111 @@ document.querySelectorAll('th[data-key]').forEach(th => {
 });
 
 render();
+
+// ---- Daily volume chart (hand-rolled SVG, no charting library) ----
+function buildChart() {
+  const accepted = records.filter(r => r.status === 'accepted' && r.published_at);
+  const candidateIds = [...new Map(accepted.map(r => [r.candidate_id, r.candidate_name])).entries()];
+  if (candidateIds.length === 0) return;
+
+  const toDay = iso => iso.slice(0, 10);
+  const allDays = accepted.map(r => toDay(r.published_at));
+  const minDay = allDays.reduce((a, b) => a < b ? a : b);
+  const maxDay = new Date().toISOString().slice(0, 10);
+
+  const days = [];
+  for (let d = new Date(minDay + 'T00:00:00Z'); d <= new Date(maxDay + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
+    days.push(d.toISOString().slice(0, 10));
+  }
+
+  const counts = {};
+  for (const [cid] of candidateIds) counts[cid] = {};
+  for (const r of accepted) {
+    const day = toDay(r.published_at);
+    counts[r.candidate_id][day] = (counts[r.candidate_id][day] || 0) + 1;
+  }
+
+  const W = 900, H = 260, padL = 30, padR = 12, padT = 12, padB = 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxCount = Math.max(1, ...candidateIds.map(([cid]) => Math.max(0, ...days.map(d => counts[cid][d] || 0))));
+
+  const x = i => padL + (days.length <= 1 ? 0 : (i / (days.length - 1)) * plotW);
+  const y = v => padT + plotH - (v / maxCount) * plotH;
+
+  const svg = document.getElementById('chart');
+  const legend = document.getElementById('chart-legend');
+  let svgHtml = '';
+
+  // gridlines (y-axis, 4 steps)
+  const steps = 4;
+  for (let s = 0; s <= steps; s++) {
+    const v = Math.round((maxCount / steps) * s);
+    const yy = y(v);
+    svgHtml += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" class="crosshair" stroke-dasharray="0" opacity="0.5"/>`;
+    svgHtml += `<text x="2" y="${yy + 3}">${v}</text>`;
+  }
+
+  // x-axis date ticks (about 6 labels across the range)
+  const tickEvery = Math.max(1, Math.floor(days.length / 6));
+  days.forEach((d, i) => {
+    if (i % tickEvery === 0 || i === days.length - 1) {
+      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d.slice(5)}</text>`;
+    }
+  });
+
+  candidateIds.forEach(([cid, name], si) => {
+    const color = seriesColors[si % seriesColors.length][isDark ? 'dark' : 'light'];
+    const pts = days.map((d, i) => [x(i), y(counts[cid][d] || 0)]);
+    const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+    svgHtml += `<path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    // end marker + direct label
+    const last = pts[pts.length - 1];
+    svgHtml += `<circle cx="${last[0]}" cy="${last[1]}" r="4" fill="${color}" stroke="var(--bg)" stroke-width="2"/>`;
+  });
+
+  // invisible crosshair capture + line
+  svgHtml += `<line id="crosshair-line" x1="0" y1="${padT}" x2="0" y2="${padT + plotH}" class="crosshair" style="display:none"/>`;
+  svgHtml += `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" id="chart-hit"/>`;
+
+  svg.innerHTML = svgHtml;
+
+  legend.innerHTML = candidateIds.map(([cid, name], si) => {
+    const color = seriesColors[si % seriesColors.length][isDark ? 'dark' : 'light'];
+    return `<span class="key"><span class="line" style="background:${color}"></span>${escapeHtml(name)}</span>`;
+  }).join('');
+
+  const tooltip = document.getElementById('chart-tooltip');
+  const hitRect = document.getElementById('chart-hit');
+  const crosshairLine = document.getElementById('crosshair-line');
+
+  hitRect.addEventListener('pointermove', e => {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.round(((svgX - padL) / plotW) * (days.length - 1));
+    const idx = Math.max(0, Math.min(days.length - 1, i));
+    const day = days[idx];
+
+    crosshairLine.style.display = 'block';
+    crosshairLine.setAttribute('x1', x(idx));
+    crosshairLine.setAttribute('x2', x(idx));
+
+    tooltip.style.display = 'block';
+    tooltip.style.left = Math.min(rect.width - 160, Math.max(0, (x(idx) / W) * rect.width + 8)) + 'px';
+    tooltip.style.top = '8px';
+
+    const rowsHtml = candidateIds.map(([cid, name], si) => {
+      const color = seriesColors[si % seriesColors.length][isDark ? 'dark' : 'light'];
+      const val = counts[cid][day] || 0;
+      return `<div class="row"><span class="line" style="background:${color}"></span><span class="lbl">${escapeHtml(name)}</span><span class="val">${val}</span></div>`;
+    }).join('');
+    tooltip.innerHTML = `<div class="date">${day}</div>${rowsHtml}`;
+  });
+  hitRect.addEventListener('pointerleave', () => {
+    tooltip.style.display = 'none';
+    crosshairLine.style.display = 'none';
+  });
+}
+buildChart();
 </script>
 </body>
 </html>
@@ -292,10 +459,38 @@ render();
 
 def generate() -> Path:
     records = load_records()
+    candidates_full = _load_candidates_full()
     data_json = json.dumps(records, ensure_ascii=False).replace("</", "<\\/")
+    series_colors_json = json.dumps(SERIES_COLORS)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    html = TEMPLATE.replace("__DATA_JSON__", data_json).replace("__GENERATED_AT__", generated_at)
+    any_backfilled = any(r.get("backfilled") for r in records)
+    backfill_note = (
+        "includes backfilled history (collected_at approximated from each item's own publish date -- see backfill.py)"
+        if any_backfilled
+        else "no backfilled history yet"
+    )
+
+    name_cards = []
+    for i, c in enumerate(candidates_full):
+        color = SERIES_COLORS[i % len(SERIES_COLORS)]["light"]
+        aliases = ", ".join(c.get("aliases") or []) or "(none configured)"
+        name_cards.append(
+            f'<div class="name-card">'
+            f'<div class="cname"><span class="swatch" style="background:{color}"></span>{c["name"]}</div>'
+            f'<div class="office">{c["office"]}</div>'
+            f'<div class="aliases"><b>Aliases matched on:</b> {aliases}</div>'
+            f"</div>"
+        )
+
+    html = (
+        TEMPLATE.replace("__DATA_JSON__", data_json)
+        .replace("__SERIES_COLORS_JSON__", series_colors_json)
+        .replace("__GENERATED_AT__", generated_at)
+        .replace("__BACKFILL_NOTE__", backfill_note)
+        .replace("__NAME_CARDS__", "\n".join(name_cards))
+    )
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(html, encoding="utf-8")
     return OUTPUT_PATH
 
