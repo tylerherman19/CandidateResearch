@@ -11,15 +11,18 @@ on:
 jobs:
   sweep:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # lets the default GITHUB_TOKEN push the data commit below
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # Default GITHUB_TOKEN commits don't count as repo activity, and
-          # schedules auto-disable after 60 days of inactivity -- use a PAT
-          # (repo scope, or fine-grained with contents:write) stored as
-          # this secret.
-          token: ${{ secrets.GH_PAT }}
+        # No PAT needed: the default GITHUB_TOKEN (via `permissions:` above)
+        # is enough to check out and push within this run. The one thing it
+        # does NOT do is count as "activity" for GitHub's 60-day scheduled-
+        # workflow auto-disable -- if this repo goes 60+ days with no other
+        # human-initiated activity, re-trigger it manually (Actions tab ->
+        # Run workflow) or add a GH_PAT secret and reference it as
+        # `token: ${{ secrets.GH_PAT }}` here to make bot commits count too.
 
       - name: Set up Python
         uses: actions/setup-python@v5
