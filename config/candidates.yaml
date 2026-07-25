@@ -1,0 +1,38 @@
+candidates:
+  - id: martinez_rutherford
+    name: "Dina Nina Martinez Rutherford"
+    aliases:
+      - "Dina Nina"
+      - "Dina Nina Martinez-Rutherford"
+    office: "WI State Assembly, District 76"
+    require_any:
+      - "Wisconsin"
+      - "Assembly"
+      - "District 76"
+      - "AD 76"
+      - "Madison"
+      - "76th"
+    exclude_any: []
+
+  - id: bennett
+    name: "Juliana Bennett"
+    aliases: []
+    office: "WI State Assembly, District 76"
+    require_any:
+      - "Wisconsin"
+      - "Assembly"
+      - "District 76"
+      - "AD 76"
+      - "Madison"
+      - "76th"
+    exclude_any: []
+
+  - id: rhodes_conway
+    name: "Satya Rhodes-Conway"
+    aliases: []
+    office: "Mayor of Madison, WI"
+    require_any:
+      - "Madison"
+      - "mayor"
+      - "Wisconsin"
+    exclude_any: []
