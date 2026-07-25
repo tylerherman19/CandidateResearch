@@ -28,6 +28,7 @@ CLASSIFICATION_FIELDS = [
     "claim_type",
     "risk_level",
     "narrative_frame",
+    "summary",
 ]
 
 PROMPT_INSTRUCTIONS = """You are classifying news/social hits about specific political candidates for a campaign monitoring digest.
@@ -40,6 +41,7 @@ For each item, produce an object with these fields:
 - claim_type: one of "factual_report", "opinion_commentary", "allegation", "endorsement", "other"
 - risk_level: one of "low", "elevated", "high" -- elevated/high for scandal, controversy, legal issues, or a major attack line
 - narrative_frame: a short free-text label (a few words) describing the story's angle
+- summary: one or two plain-English sentences summarizing what the item actually says (not the headline restated -- the substance)
 
 Return ONLY a JSON object of the form {{"items": [ ... ]}}, one entry per item below, in the same order. No other text.
 
@@ -139,6 +141,7 @@ def _rules_classify_one(item: dict) -> dict:
         "claim_type": "unknown",
         "risk_level": risk_level,
         "narrative_frame": "",
+        "summary": "",  # rules tier can't reliably summarize without an LLM
     }
 
 

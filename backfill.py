@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 from run import ENV_PATH, load_candidates, load_dotenv
-from collectors import bluesky, gdelt, google_news, meta_ads, reddit, youtube
+from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitics, youtube
 from dashboard.generate import generate as generate_dashboard
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
@@ -35,6 +35,7 @@ def backfill_collect(candidate: dict, days: int):
     for name, fn, kwargs in [
         ("google_news", google_news.collect, {"days": days}),
         ("gdelt", gdelt.collect, {"days": days, "maxrecords": 250}),
+        ("wispolitics", wispolitics.collect, {}),
         ("reddit", reddit.collect, {}),
         ("youtube", youtube.collect, {}),
         ("bluesky", bluesky.collect, {}),

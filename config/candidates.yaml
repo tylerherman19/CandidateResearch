@@ -13,6 +13,17 @@ candidates:
       - "Madison"
       - "76th"
     exclude_any: []
+    # Terms specific enough to this exact race that they're accepted on their
+    # own, without a name match -- for when a source only gives us a headline
+    # (Google News RSS has no real snippet, so a real name mention buried in
+    # the article body is invisible to us; see resolve.py). Unlike "Madison"/
+    # "Wisconsin" alone, these can't plausibly be about something else.
+    race_context_terms:
+      - "76th Assembly District"
+      - "District 76"
+      - "AD 76"
+      - "76th District"
+      - "Francesca Hong"  # outgoing AD76 incumbent -- articles about her successor are this race
 
   - id: bennett
     name: "Juliana Bennett"
@@ -26,6 +37,12 @@ candidates:
       - "Madison"
       - "76th"
     exclude_any: []
+    race_context_terms:
+      - "76th Assembly District"
+      - "District 76"
+      - "AD 76"
+      - "76th District"
+      - "Francesca Hong"  # outgoing AD76 incumbent -- articles about her successor are this race
 
   - id: rhodes_conway
     name: "Satya Rhodes-Conway"
@@ -36,3 +53,6 @@ candidates:
       - "mayor"
       - "Wisconsin"
     exclude_any: []
+    race_context_terms:
+      - "Madison mayor"
+      - "mayor of Madison"

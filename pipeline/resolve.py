@@ -2,7 +2,9 @@
 
 Design (per CLAUDE.md, approved before implementation):
   1. exclude_any phrase present anywhere       -> reject
-  2. no name/alias match anywhere              -> reject
+  2. no name/alias match anywhere:
+     - a race_context_terms phrase present     -> accept, loose (see below)
+     - otherwise                               -> reject
   3. require_any term present, but not within  -> reject
      ~200 words of a name/alias match
   4. name/alias match + require_any within 200
@@ -10,6 +12,17 @@ Design (per CLAUDE.md, approved before implementation):
 
 Every rejection is returned with its reason so callers can log it for audit
 -- silent over-filtering is treated as worse than noise.
+
+race_context_terms (deliberately loose, added after real-world feedback):
+Google News RSS gives us only the headline -- no real article snippet -- so
+a genuine name mention buried in the article body is invisible to us. A
+headline like "Candidates for [seat] explain their views" is almost
+certainly about our candidate if she's one of a small number running for
+that exact seat, even with her name absent from the headline. race_context_
+terms are phrases specific enough to one race (e.g. "76th Assembly
+District") that a false positive is implausible -- unlike generic geography
+("Madison", "Wisconsin"), which real testing showed produces false positives
+(an unrelated Madison police-shooting story kept matching on "Madison").
 """
 
 import re
@@ -42,6 +55,14 @@ def resolve(item: dict, candidate: dict):
         for offset in _find_offsets(phrase, text_lower)
     ]
     if not name_hits:
+        race_context_terms = candidate.get("race_context_terms", [])
+        race_hit = next((term for term in race_context_terms if _find_offsets(term, text_lower)), None)
+        if race_hit:
+            resolved = dict(item)
+            resolved["matched_alias"] = ""
+            resolved["matched_require_any"] = race_hit
+            resolved["match_type"] = "race_context_only"
+            return resolved, None
         return None, "no_name_match"
 
     require_any = candidate.get("require_any", [])
@@ -61,6 +82,7 @@ def resolve(item: dict, candidate: dict):
                 resolved = dict(item)
                 resolved["matched_alias"] = name_phrase
                 resolved["matched_require_any"] = req_term
+                resolved["match_type"] = "name"
                 return resolved, None
 
     return None, "require_any_present_but_outside_200_words"

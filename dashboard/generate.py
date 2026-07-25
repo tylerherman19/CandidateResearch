@@ -70,6 +70,7 @@ def load_records() -> list:
                     "matched_on": item.get("matched_alias", ""),
                     "matched_context": item.get("matched_require_any", ""),
                     "backfilled": bool(item.get("backfilled", False)),
+                    "summary": item.get("summary", ""),
                 }
             )
 
@@ -96,6 +97,7 @@ def load_records() -> list:
                     "matched_on": "",
                     "matched_context": "",
                     "backfilled": False,
+                    "summary": "",
                 }
             )
 
@@ -154,29 +156,57 @@ TEMPLATE = """<!doctype html>
     background: var(--input-bg); color: var(--fg); font-size: 0.85rem;
   }
   input[type=text] { flex: 1; min-width: 200px; }
-  table { width: 100%; border-collapse: collapse; overflow-x: auto; display: block; }
-  thead, tbody { display: table; width: 100%; table-layout: fixed; }
+  .table-card { padding: 0; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  col.col-status { width: 100px; }
+  col.col-candidate { width: 150px; }
+  col.col-story { width: auto; }
+  col.col-matched { width: 190px; }
+  col.col-class { width: 150px; }
+  col.col-outlets { width: 70px; }
   th, td {
-    text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border);
-    vertical-align: top; word-break: break-word;
+    text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border);
+    vertical-align: top;
   }
   th {
     cursor: pointer; user-select: none; color: var(--muted);
-    font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em;
-    position: sticky; top: 0; background: var(--bg);
+    font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    position: sticky; top: 0; background: var(--bg); white-space: nowrap;
   }
   th:hover { color: var(--fg); }
   th.sorted::after { content: attr(data-arrow); margin-left: 0.3rem; }
   tbody tr:hover { background: var(--row-hover); }
+  tbody td { font-size: 0.85rem; }
   .badge {
-    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 999px;
-    font-size: 0.7rem; font-weight: 600;
+    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
+    font-size: 0.68rem; font-weight: 600; white-space: nowrap;
   }
   .badge.accepted { color: var(--accept); background: var(--accept-bg); }
   .badge.rejected { color: var(--reject); background: var(--reject-bg); }
-  .badge.backfilled { color: var(--secondary); background: var(--border); margin-left: 0.3rem; }
+  .badge.backfilled { color: var(--secondary); background: var(--border); font-weight: 500; }
+  .status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
   a { color: inherit; }
   .empty { color: var(--muted); padding: 2rem; text-align: center; }
+  .muted-dash { color: var(--muted); }
+  .story-title {
+    display: block; font-weight: 600; color: var(--fg); text-decoration: none;
+    line-height: 1.35; margin-bottom: 0.2rem;
+  }
+  .story-title:hover { text-decoration: underline; }
+  .story-title.no-link { color: var(--fg); }
+  .story-meta { color: var(--muted); font-size: 0.76rem; }
+  .story-summary { color: var(--secondary); font-size: 0.78rem; margin-top: 0.3rem; line-height: 1.4; }
+  .reason-text { color: var(--reject); font-size: 0.78rem; }
+  .matched-name { font-weight: 600; font-size: 0.82rem; }
+  .matched-context { color: var(--muted); font-size: 0.74rem; margin-top: 0.15rem; }
+  .mini-badges { display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; }
+  .mini-badge {
+    display: inline-block; padding: 0.1rem 0.45rem; border-radius: 5px;
+    font-size: 0.7rem; background: var(--border); color: var(--secondary);
+  }
+  .mini-badge.risk-elevated, .mini-badge.risk-high { background: var(--reject-bg); color: var(--reject); }
+  .mini-badge.stance-favorable { background: var(--accept-bg); color: var(--accept); }
+  .mini-badge.stance-unfavorable { background: var(--reject-bg); color: var(--reject); }
   .chart-wrap { position: relative; }
   .chart-legend { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
   .chart-legend .key { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--secondary); }
@@ -233,26 +263,26 @@ TEMPLATE = """<!doctype html>
   </select>
 </div>
 
+<div class="card table-card">
 <table>
+  <colgroup>
+    <col class="col-status"><col class="col-candidate"><col class="col-story">
+    <col class="col-matched"><col class="col-class"><col class="col-outlets">
+  </colgroup>
   <thead>
     <tr>
       <th data-key="status">Status</th>
       <th data-key="candidate_name">Candidate</th>
-      <th data-key="title">Title</th>
-      <th data-key="source">Source</th>
-      <th data-key="collector">Collector</th>
-      <th data-key="published_at">Published</th>
-      <th data-key="matched_on">Matched name</th>
-      <th data-key="topic">Topic</th>
-      <th data-key="stance">Stance</th>
-      <th data-key="risk_level">Risk</th>
+      <th data-key="published_at">Story</th>
+      <th data-key="matched_on">Matched on</th>
+      <th data-key="risk_level">Classification</th>
       <th data-key="cluster_size">Outlets</th>
-      <th data-key="reason">Reason</th>
     </tr>
   </thead>
   <tbody id="rows"></tbody>
 </table>
 <div class="empty" id="empty-state" style="display:none">No rows match.</div>
+</div>
 
 <script type="application/json" id="data">__DATA_JSON__</script>
 <script type="application/json" id="series-colors">__SERIES_COLORS_JSON__</script>
@@ -283,7 +313,7 @@ function render() {
     if (state.status !== 'all' && r.status !== state.status) return false;
     if (state.candidate !== 'all' && r.candidate_name !== state.candidate) return false;
     if (state.search) {
-      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance, r.matched_on]
+      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance, r.matched_on, r.summary]
         .join(' ').toLowerCase();
       if (!hay.includes(state.search.toLowerCase())) return false;
     }
@@ -302,23 +332,42 @@ function render() {
   document.getElementById('stat-accepted').textContent = records.filter(r => r.status === 'accepted').length;
   document.getElementById('stat-rejected').textContent = records.filter(r => r.status === 'rejected').length;
 
+  const dash = '<span class="muted-dash">&mdash;</span>';
+
   const tbody = document.getElementById('rows');
-  tbody.innerHTML = rows.map(r => `
+  tbody.innerHTML = rows.map(r => {
+    const meta = [r.source, (r.published_at || '').slice(0, 10), r.collector].filter(Boolean).join(' &middot; ');
+    const titleHtml = r.url
+      ? `<a class="story-title" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>`
+      : `<span class="story-title no-link">${escapeHtml(r.title)}</span>`;
+
+    const matchedCell = r.status === 'accepted'
+      ? `<div class="matched-name">${escapeHtml(r.matched_on) || dash}</div>${r.matched_context ? `<div class="matched-context">near: ${escapeHtml(r.matched_context)}</div>` : ''}`
+      : `<div class="reason-text">${escapeHtml(r.reason)}</div>`;
+
+    const classCell = r.status === 'accepted'
+      ? `<div class="mini-badges">
+           <span class="mini-badge">${escapeHtml(r.topic) || dash}</span>
+           <span class="mini-badge stance-${escapeHtml(r.stance)}">${escapeHtml(r.stance) || dash}</span>
+           <span class="mini-badge risk-${escapeHtml(r.risk_level)}">${escapeHtml(r.risk_level) || dash}</span>
+         </div>`
+      : dash;
+
+    return `
     <tr>
-      <td><span class="badge ${r.status}">${r.status}</span>${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}</td>
+      <td><div class="status-cell"><span class="badge ${r.status}">${r.status}</span>${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}</div></td>
       <td>${escapeHtml(r.candidate_name)}</td>
-      <td>${r.url ? `<a href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>` : escapeHtml(r.title)}</td>
-      <td>${escapeHtml(r.source)}</td>
-      <td>${escapeHtml(r.collector)}</td>
-      <td>${escapeHtml((r.published_at || '').slice(0, 10))}</td>
-      <td>${escapeHtml(r.matched_on)}</td>
-      <td>${escapeHtml(r.topic)}</td>
-      <td>${escapeHtml(r.stance)}</td>
-      <td>${escapeHtml(r.risk_level)}</td>
-      <td>${r.cluster_size > 1 ? r.cluster_size : ''}</td>
-      <td>${escapeHtml(r.reason)}</td>
+      <td>
+        ${titleHtml}
+        <div class="story-meta">${meta || dash}</div>
+        ${r.summary ? `<div class="story-summary">${escapeHtml(r.summary)}</div>` : ''}
+      </td>
+      <td>${matchedCell}</td>
+      <td>${classCell}</td>
+      <td>${r.cluster_size > 1 ? r.cluster_size : dash}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   document.getElementById('empty-state').style.display = rows.length ? 'none' : 'block';
 

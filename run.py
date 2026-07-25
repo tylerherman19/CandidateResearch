@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from collectors import bluesky, gdelt, google_news, meta_ads, reddit, youtube
+from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitics, youtube
 from dashboard.generate import generate as generate_dashboard
 from digest.render import render_digest
 from digest.send import send_digest
@@ -41,6 +41,7 @@ def load_dotenv(path: Path) -> None:
 COLLECTORS = {
     "google_news": google_news.collect,
     "gdelt": gdelt.collect,
+    "wispolitics": wispolitics.collect,
     "reddit": reddit.collect,
     "youtube": youtube.collect,
     "bluesky": bluesky.collect,
