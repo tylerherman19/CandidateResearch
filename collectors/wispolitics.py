@@ -41,6 +41,7 @@ def collect(candidate: dict) -> list:
         return []
 
     feed = feedparser.parse(resp.content)
+    print(f"  [info] wispolitics: fetched {len(feed.entries)} feed entries for {candidate['name']}", file=sys.stderr)
 
     items = []
     for entry in feed.entries:
