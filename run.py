@@ -1,21 +1,50 @@
-"""Run the daily sweep: collect -> resolve -> store -> print a per-candidate
-summary of today's (newly found) hits, plus rejection/failure counts."""
+"""Run the daily sweep: collect -> resolve -> dedupe -> classify -> store ->
+digest -> dashboard. Prints a per-candidate terminal summary too."""
 
+import os
 import sys
 from pathlib import Path
 
 import yaml
 
-from collectors import gdelt, google_news
+from collectors import bluesky, gdelt, google_news, meta_ads, reddit, youtube
 from dashboard.generate import generate as generate_dashboard
+from digest.render import render_digest
+from digest.send import send_digest
+from pipeline.classify import classify_items
+from pipeline.dedupe import cluster_items
 from pipeline.resolve import resolve
+from pipeline.velocity import check_velocity
 from store.jsonl import append_items, append_rejections
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config" / "candidates.yaml"
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+
+def load_dotenv(path: Path) -> None:
+    """Minimal stdlib .env loader for local dev -- avoids adding
+    python-dotenv as a dependency for something this small. Doesn't
+    override real env vars already set (GitHub Actions injects secrets
+    that way directly, no .env file involved there)."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 COLLECTORS = {
     "google_news": google_news.collect,
     "gdelt": gdelt.collect,
+    "reddit": reddit.collect,
+    "youtube": youtube.collect,
+    "bluesky": bluesky.collect,
+    "meta_ad_library": meta_ads.collect,
 }
 
 
@@ -62,6 +91,19 @@ def run_sweep(candidates: list):
     return resolved_items, rejections, collector_failures
 
 
+def dedupe_by_candidate(candidates: list, resolved_items: list) -> list:
+    """Clusters near-duplicate items per candidate (a cluster from one
+    candidate's coverage shouldn't merge with another's)."""
+    by_candidate = {}
+    for item in resolved_items:
+        by_candidate.setdefault(item["candidate_id"], []).append(item)
+
+    deduped = []
+    for candidate in candidates:
+        deduped.extend(cluster_items(by_candidate.get(candidate["id"], [])))
+    return deduped
+
+
 def print_summary(candidates: list, new_items: list, rejections: list, collector_failures: list) -> None:
     by_candidate = {c["id"]: [] for c in candidates}
     for item in new_items:
@@ -82,8 +124,15 @@ def print_summary(candidates: list, new_items: list, rejections: list, collector
             print("  (no new hits)")
         for item in items:
             date = item.get("published_at", "")[:10] or "unknown date"
-            print(f"  - {item['title']}")
-            print(f"    {item.get('source') or 'unknown source'} | {date} | {item['collector']}")
+            cluster_note = f" [{item['cluster_size']} outlets]" if item.get("cluster_size", 1) > 1 else ""
+            classification_note = ""
+            if item.get("classified_by"):
+                classification_note = (
+                    f" -- {item.get('topic')}/{item.get('stance_toward_candidate')}/"
+                    f"{item.get('risk_level')} (via {item.get('classified_by')})"
+                )
+            print(f"  - {item['title']}{cluster_note}")
+            print(f"    {item.get('source') or 'unknown source'} | {date} | {item['collector']}{classification_note}")
             print(f"    {item['source_url']}")
         rejected = rejected_counts.get(candidate["id"], 0)
         if rejected:
@@ -96,17 +145,42 @@ def print_summary(candidates: list, new_items: list, rejections: list, collector
 
 
 def main() -> None:
+    load_dotenv(ENV_PATH)
     candidates = load_candidates()
-    print(f"Sweeping {len(candidates)} candidates...")
+    candidates_map = {c["id"]: {"name": c["name"], "office": c["office"]} for c in candidates}
+
+    print(f"Sweeping {len(candidates)} candidates across {len(COLLECTORS)} collectors...")
     resolved_items, rejections, collector_failures = run_sweep(candidates)
-    new_items = append_items(resolved_items)
+
+    deduped_items = dedupe_by_candidate(candidates, resolved_items)
+    classified_items = classify_items(deduped_items, candidates_map)
+
+    new_items = append_items(classified_items)
     append_rejections(rejections)
+
+    velocity = check_velocity([c["id"] for c in candidates])
+
     print_summary(candidates, new_items, rejections, collector_failures)
     print(
         f"\n{len(new_items)} new item(s) stored this run "
-        f"({len(resolved_items) - len(new_items)} already in store, "
-        f"{len(rejections)} rejected)."
+        f"({len(classified_items) - len(new_items)} already in store, "
+        f"{len(rejections)} rejected, {len(resolved_items) - len(deduped_items)} merged as duplicates)."
     )
+    for candidate_id, v in velocity.items():
+        if v["spike"]:
+            name = candidates_map[candidate_id]["name"]
+            print(f"  [SPIKE] {name}: {v['today']} today vs {v['baseline_mean']} avg over {v['baseline_days']}d")
+
+    items_by_candidate = {}
+    for item in new_items:
+        items_by_candidate.setdefault(item["candidate_id"], []).append(item)
+    rejected_counts = {}
+    for rejection in rejections:
+        rejected_counts[rejection["candidate_id"]] = rejected_counts.get(rejection["candidate_id"], 0) + 1
+
+    digest_html = render_digest(candidates, items_by_candidate, velocity, rejected_counts)
+    print(send_digest(digest_html))
+
     dashboard_path = generate_dashboard()
     print(f"Dashboard refreshed: {dashboard_path}")
 

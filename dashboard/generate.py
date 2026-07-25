@@ -56,6 +56,11 @@ def load_records() -> list:
                     "published_at": item.get("published_at", ""),
                     "url": item.get("source_url", ""),
                     "reason": "",
+                    "topic": item.get("topic", ""),
+                    "stance": item.get("stance_toward_candidate", ""),
+                    "risk_level": item.get("risk_level", ""),
+                    "cluster_size": item.get("cluster_size", 1),
+                    "classified_by": item.get("classified_by", ""),
                 }
             )
 
@@ -74,6 +79,11 @@ def load_records() -> list:
                     "published_at": "",
                     "url": item.get("source_url", ""),
                     "reason": item.get("reason", ""),
+                    "topic": "",
+                    "stance": "",
+                    "risk_level": "",
+                    "cluster_size": 1,
+                    "classified_by": "",
                 }
             )
 
@@ -175,6 +185,10 @@ TEMPLATE = """<!doctype html>
       <th data-key="source">Source</th>
       <th data-key="collector">Collector</th>
       <th data-key="published_at">Published</th>
+      <th data-key="topic">Topic</th>
+      <th data-key="stance">Stance</th>
+      <th data-key="risk_level">Risk</th>
+      <th data-key="cluster_size">Outlets</th>
       <th data-key="reason">Reason</th>
     </tr>
   </thead>
@@ -208,7 +222,7 @@ function render() {
     if (state.status !== 'all' && r.status !== state.status) return false;
     if (state.candidate !== 'all' && r.candidate_name !== state.candidate) return false;
     if (state.search) {
-      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector]
+      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance]
         .join(' ').toLowerCase();
       if (!hay.includes(state.search.toLowerCase())) return false;
     }
@@ -236,6 +250,10 @@ function render() {
       <td>${escapeHtml(r.source)}</td>
       <td>${escapeHtml(r.collector)}</td>
       <td>${escapeHtml((r.published_at || '').slice(0, 10))}</td>
+      <td>${escapeHtml(r.topic)}</td>
+      <td>${escapeHtml(r.stance)}</td>
+      <td>${escapeHtml(r.risk_level)}</td>
+      <td>${r.cluster_size > 1 ? r.cluster_size : ''}</td>
       <td>${escapeHtml(r.reason)}</td>
     </tr>
   `).join('');
