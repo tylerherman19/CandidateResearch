@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 from run import ENV_PATH, finalize_rejections, load_candidates, load_dotenv
-from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitics, youtube
+from collectors import bluesky, currents_news, gdelt, google_news, meta_ads, reddit, wi_outlets, wispolitics, youtube
 from dashboard.generate import generate as generate_dashboard
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
@@ -34,7 +34,9 @@ def backfill_collect(candidate: dict, days: int):
     we don't have) are called as-is and will just no-op as usual."""
     items = []
     for name, fn, kwargs in [
+        ("wi_outlets", wi_outlets.collect, {"days": None}),  # None = full outlet history, not just `days`
         ("google_news", google_news.collect, {"days": days}),
+        ("currents_api", currents_news.collect, {"days": days}),
         ("gdelt", gdelt.collect, {"days": days, "maxrecords": 250}),
         ("wispolitics", wispolitics.collect, {}),
         ("reddit", reddit.collect, {}),

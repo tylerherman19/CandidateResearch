@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitics, youtube
+from collectors import bluesky, currents_news, gdelt, google_news, meta_ads, reddit, wi_outlets, wispolitics, youtube
 from dashboard.generate import generate as generate_dashboard
 from digest.render import render_digest
 from digest.send import send_digest
@@ -40,7 +40,9 @@ def load_dotenv(path: Path) -> None:
             os.environ[key] = value
 
 COLLECTORS = {
+    "wi_outlets": wi_outlets.collect,  # real snippets + real URLs direct from the newsroom -- highest signal, checked first
     "google_news": google_news.collect,
+    "currents_api": currents_news.collect,  # broader-recall backup; no-ops without CURRENTS_API_KEY
     "gdelt": gdelt.collect,
     "wispolitics": wispolitics.collect,
     "reddit": reddit.collect,
