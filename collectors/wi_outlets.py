@@ -44,29 +44,12 @@ retries, which would just wait longer to fail against the same tripled
 volume."""
 
 import sys
-import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote
 
 import feedparser
-import requests
 
 from pipeline.normalize import normalize
-
-TIMEOUT_SECONDS = 20
-RETRY_BACKOFF_SECONDS = 3
-_USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
-
-# TNCMS outlets: same search-RSS interface, just a different domain/display name.
-TNCMS_OUTLETS = [
-    ("captimes", "The Capital Times", "captimes.com"),
-    ("wsj_madison", "Wisconsin State Journal", "madison.com"),
-    ("channel3000", "Channel 3000 / WISC-TV", "www.channel3000.com"),
-    ("wkow", "WKOW 27", "www.wkow.com"),  # confirmed same TNCMS search interface
-]
+from pipeline.tncms_outlets import TNCMS_OUTLETS, TNCMS_OUTLETS_BY_DOMAIN, get_with_retry, search_outlet
 
 ISTHMUS_FEED_URL = "https://isthmus.com/api/rss/content.rss"
 ISTHMUS_MAX_PAGES = 3  # general feed, not search -- only page back far enough for recent items
@@ -77,23 +60,6 @@ def _parse_published(entry) -> str:
     if not published_parsed:
         return ""
     return datetime(*published_parsed[:6], tzinfo=timezone.utc).isoformat(timespec="seconds")
-
-
-RETRY_ATTEMPTS = 2  # a single transient timeout otherwise silently drops a real match
-
-
-def _get_with_retry(url: str):
-    last_exc = None
-    for attempt in range(RETRY_ATTEMPTS):
-        if attempt > 0:
-            time.sleep(RETRY_BACKOFF_SECONDS)
-        try:
-            resp = requests.get(url, headers={"User-Agent": _USER_AGENT}, timeout=TIMEOUT_SECONDS)
-            resp.raise_for_status()
-            return resp
-        except Exception as exc:
-            last_exc = exc
-    raise last_exc
 
 
 def _collect_tncms_outlet(candidate: dict, display_name: str, domain: str, cutoff) -> list:
@@ -111,15 +77,7 @@ def _collect_tncms_outlet(candidate: dict, display_name: str, domain: str, cutof
     seen_links = set()
 
     for phrase in name_phrases + race_phrases:
-        url = f"https://{domain}/search/?f=rss&t=article&q={quote(phrase)}"
-        try:
-            resp = _get_with_retry(url)
-        except Exception as exc:
-            print(f"  [info] {domain} search failed for {phrase!r}: {exc}", file=sys.stderr)
-            continue
-
-        feed = feedparser.parse(resp.content)
-        for entry in feed.entries:
+        for entry in search_outlet(domain, phrase):
             link = entry.get("link", "")
             if not link or link in seen_links:
                 continue
@@ -147,9 +105,6 @@ def _collect_tncms_outlet(candidate: dict, display_name: str, domain: str, cutof
     return items
 
 
-TNCMS_OUTLETS_BY_DOMAIN = {domain: key for key, _, domain in TNCMS_OUTLETS}
-
-
 # Fetched once per process, not once per candidate -- see module docstring.
 # Isthmus's feed doesn't vary by candidate, so re-fetching it per candidate
 # only ever multiplies real network load for identical content.
@@ -168,7 +123,7 @@ def _fetch_isthmus_entries(cutoff) -> list:
         if not url:
             break
         try:
-            resp = _get_with_retry(url)
+            resp = get_with_retry(url)
         except Exception as exc:
             print(f"  [info] isthmus.com feed page failed: {exc}", file=sys.stderr)
             break

@@ -71,7 +71,10 @@ def main() -> None:
     days = int(sys.argv[1]) if len(sys.argv) > 1 else 60
     load_dotenv(ENV_PATH)
     candidates = load_candidates()
-    candidates_map = {c["id"]: {"name": c["name"], "office": c["office"]} for c in candidates}
+    # Full candidate dicts, not just name/office -- judge_rejected_items()
+    # needs race_context_exclude_any to apply the same safety gates
+    # resolve() applies (see pipeline.resolve.passes_loose_match_gates).
+    candidates_map = {c["id"]: c for c in candidates}
 
     print(f"Backfilling {days} days for {len(candidates)} candidates (real APIs, wider window)...")
 

@@ -78,6 +78,43 @@ def _is_recent_enough(published_at: str) -> bool:
     return dt >= cutoff
 
 
+def passes_loose_match_gates(item: dict, candidate: dict, text_lower: str = None):
+    """Deterministic safety checks for any acceptance that ISN'T a literal
+    name match -- a real name match is strong evidence on its own (any
+    date, any topic), but race_context_only matches and LLM-judged
+    rescues have no such evidence, so both need the same two guards:
+    recency (an unnamed race-context mention could be about any past
+    election for the same seat) and race_context_exclude_any (a
+    configured "this topic means it's not actually about the succession
+    race" term, e.g. "governor" for Francesca Hong's own unrelated
+    campaign coverage).
+
+    Centralized here rather than left inline in resolve()'s
+    race_context_only branch, because that was a real, confirmed bug:
+    judge_rejected_items()'s LLM-rescue path doesn't call resolve() again,
+    so neither gate applied to anything it promoted -- a from-2016
+    "Chris Taylor, Jon Rygiewicz ask for your vote in Assembly District
+    76" article, and completely unrelated Francesca-Hong-the-chef
+    restaurant-review pieces, both got rescued by an LLM that was never
+    told either constraint existed. Both call sites now share this one
+    function instead of duplicating (or forgetting to duplicate) the
+    checks. Returns (True, "") or (False, reason)."""
+    if text_lower is None:
+        text_lower = f"{item.get('title', '')} {item.get('text', '')}".lower()
+
+    if not _is_recent_enough(item.get("published_at", "")):
+        return False, "too_old_for_loose_match"
+
+    exclude_hit = next(
+        (term for term in candidate.get("race_context_exclude_any", []) if _find_offsets(term, text_lower)),
+        None,
+    )
+    if exclude_hit:
+        return False, f"race_context_excluded_term:{exclude_hit}"
+
+    return True, ""
+
+
 def resolve(item: dict, candidate: dict):
     """Returns (resolved_item, None) on accept, or (None, reason) on reject.
     resolved_item is `item` augmented with matched_alias/matched_require_any."""
@@ -99,23 +136,9 @@ def resolve(item: dict, candidate: dict):
     race_context_terms = candidate.get("race_context_terms", [])
     race_hit = next((term for term in race_context_terms if _find_offsets(term, text_lower)), None)
     if race_hit:
-        if not _is_recent_enough(item.get("published_at", "")):
-            return None, "race_context_only_but_too_old"
-        # Gates only this loose path, not a direct name match above --
-        # confirmed a real case where a genuine name-matched article
-        # ("Disability Pride Flag raising ceremony") happened to mention
-        # "governor" in an unrelated civic-proclamation context. A direct
-        # name match is strong enough evidence that it shouldn't be vetoed
-        # by a generic word appearing elsewhere; race_context_only has no
-        # such evidence (no name at all), so it's the one path that needs
-        # this extra safety net. See race_context_exclude_any's own
-        # config comment for the concrete case this fixes.
-        race_exclude_hit = next(
-            (term for term in candidate.get("race_context_exclude_any", []) if _find_offsets(term, text_lower)),
-            None,
-        )
-        if race_exclude_hit:
-            return None, f"race_context_excluded_term:{race_exclude_hit}"
+        gate_ok, gate_reason = passes_loose_match_gates(item, candidate, text_lower)
+        if not gate_ok:
+            return None, gate_reason
         resolved = dict(item)
         resolved["matched_alias"] = ""
         resolved["matched_require_any"] = race_hit

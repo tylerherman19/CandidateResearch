@@ -173,7 +173,10 @@ def print_summary(candidates: list, new_items: list, rejections: list, collector
 def main() -> None:
     load_dotenv(ENV_PATH)
     candidates = load_candidates()
-    candidates_map = {c["id"]: {"name": c["name"], "office": c["office"]} for c in candidates}
+    # Full candidate dicts, not just name/office -- judge_rejected_items()
+    # needs race_context_exclude_any to apply the same safety gates
+    # resolve() applies (see pipeline.resolve.passes_loose_match_gates).
+    candidates_map = {c["id"]: c for c in candidates}
 
     print(f"Sweeping {len(candidates)} candidates across {len(COLLECTORS)} collectors...")
     resolved_items, pending_rejections, collector_failures = run_sweep(candidates)

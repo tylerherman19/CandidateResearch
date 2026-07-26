@@ -31,6 +31,8 @@ import sys
 
 import requests
 
+from pipeline.resolve import passes_loose_match_gates
+
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 BATCH_SIZE = 25
 TIMEOUT_SECONDS = 30
@@ -39,7 +41,10 @@ PROMPT_INSTRUCTIONS = """You are doing a second-opinion review of news items a k
 
 CRITICAL GROUNDING RULE, read this first: the "text" field below is frequently just the headline repeated -- there is often no real article body at all. Being told which candidate you're checking is NOT evidence that candidate appears in the text. Do not reason "since we're checking about her, and this article is plausibly about someone in her position, it must be her" -- that is not what "explicitly named" means. Before answering YES, find the literal words in the title/text that support it, and quote or point to them in your reason. If you cannot point to a specific word or phrase in the given text that identifies her, answer NO, even if the topic feels like an obvious match for who she is. Getting this wrong by inventing textual evidence that isn't there is a worse failure than a missed borderline case.
 
-Answer YES only if the candidate herself is specifically involved -- named, directly quoted, described taking a specific action, or the piece is a multi-candidate roundup of the exact race she's running in, AND the given text actually contains the words that establish this. This is about what the text literally says, not what seems plausible given who she is.
+Answer YES if EITHER of these is literally true in the text:
+  (a) THE CANDIDATE LISTED ABOVE (the one named in "candidate=") is herself specifically involved -- named, directly quoted, or described taking a specific action. The text must contain the actual words that establish this about HER, specifically -- not about anyone else who happens to be mentioned nearby, even a prior officeholder for her seat, a party leader, or another public figure discussed in the same piece. If the article is actually about a different named person's own career, campaign, or activities, and the candidate you're checking isn't independently named/quoted/described, that is NO -- even if that other person's name is a term you'd associate with this race.
+  (b) The piece is a multi-candidate roundup of the exact race she's running in (e.g. "5 Democrats running for Assembly District 76" when she's one of those 5). For THIS case specifically, the text does NOT need to name her individually -- that is the whole point of the roundup exception, and demoting a genuine roundup for "not naming her specifically" defeats it entirely. What the text DOES need to establish literally is a district number, seat name, or exact office she's running for -- an actual roundup or race-coverage frame. A prior officeholder for that seat being named, by itself, is NOT enough to satisfy (b) unless the text also frames it as coverage of the race/succession itself (not that person's own separate career or a different campaign of theirs) -- someone who used to hold the seat has their own independent newsworthiness (their own later campaigns, opinions, personal life) that has nothing to do with who succeeds them, and a mention of them is not evidence about the current race just because they once held it.
+Do not require both (a) and (b) -- either one alone is sufficient. A roundup piece failing (a) is not itself a reason to answer NO if it satisfies (b).
 
 Answer NO for "this falls under her job's general responsibilities" reasoning -- that is not evidence she is actually in this specific piece. A mayor is nominally responsible for policing, budgets, climate policy, and every other city function; that does not mean every city news story is about her. Reject reasoning like "city officials would typically be involved," "this is the kind of thing the mayor's administration handles," or "this concerns the mayor's jurisdiction" -- none of that says she is actually mentioned. If the item never actually names her, quotes her, or describes a specific action she took, answer NO even if the general subject matter falls within her office's remit.
 
@@ -64,7 +69,7 @@ def _build_items_block(items: list, candidates_map: dict) -> str:
         candidate_label = f"{info.get('name', item.get('candidate_id', ''))} ({info.get('office', '')})"
         lines.append(
             f"{i + 1}. id={item['id']} | candidate={candidate_label} | "
-            f"title: {item.get('title', '')} | text: {(item.get('text') or '')[:300]}"
+            f"title: {item.get('title', '')} | text: {(item.get('text') or '')[:8000]}"
         )
     return "\n".join(lines)
 
@@ -126,6 +131,21 @@ def judge_rejected_items(rejected: list, candidates_map: dict, gemini_key=None, 
 
         for (item, reason), verdict in zip(batch, verdicts):
             if str(verdict.get("verdict", "")).lower() == "yes":
+                # Same deterministic safety gates resolve() applies to its
+                # own race_context_only path -- a real regression without
+                # this: this LLM path never calls resolve() again, so a
+                # 2016-era "Chris Taylor, Jon Rygiewicz ask for your vote
+                # in Assembly District 76" article, and completely
+                # unrelated Francesca-Hong-the-chef restaurant coverage,
+                # both got rescued by an LLM that had no idea either the
+                # recency or exclude-term constraint existed. See
+                # passes_loose_match_gates's own docstring.
+                candidate = candidates_map.get(item.get("candidate_id"), {})
+                gate_ok, gate_reason = passes_loose_match_gates(item, candidate)
+                if not gate_ok:
+                    still_rejected.append((item, gate_reason))
+                    continue
+
                 resolved = dict(item)
                 resolved["matched_alias"] = ""
                 resolved["matched_require_any"] = ""

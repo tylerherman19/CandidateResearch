@@ -27,6 +27,11 @@ from pipeline.normalize import normalize
 
 SEARCH_URL = "https://api.currentsapi.services/v1/search"
 TIMEOUT_SECONDS = 15
+# Free tier hard-caps date_range to 7 days (confirmed directly: a >7-day
+# request 400s with {"errors":{"date_range":"Max range is 7 days"}}).
+# Clamp rather than error -- daily/cron use (days=3 default) is already
+# within range; only backfill's wider `days` needs this.
+MAX_DATE_RANGE_DAYS = 7
 
 
 def _normalize_published(raw: str) -> str:
@@ -53,7 +58,7 @@ def collect(candidate: dict, days: int = 3) -> list:
         return []
 
     now = datetime.now(timezone.utc)
-    start_date = (now - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    start_date = (now - timedelta(days=min(days, MAX_DATE_RANGE_DAYS))).strftime("%Y-%m-%dT%H:%M:%S+00:00")
     end_date = now.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
     try:
