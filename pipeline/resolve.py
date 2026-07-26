@@ -75,23 +75,33 @@ def resolve(item: dict, candidate: dict):
 
 
 def resolve_with_fetch_fallback(item: dict, candidate: dict):
-    """Same contract as resolve(), but if the title/snippet-only pass would
-    reject the item AND the collector gives us a real, direct article URL
-    (see fetch_text.py -- true for GDELT, not for Google News' obfuscated
-    redirect links), fetches the actual page and retries matching against
-    its real body text before giving up. This is what catches a genuine
-    name mention that only exists in the article body, which collectors
-    like GDELT never give us in the RSS/API response itself."""
+    """Returns (resolved_or_None, reason, item_for_audit).
+
+    item_for_audit is the richest version of the item available -- if a
+    full-text fetch happened (even if it didn't flip the verdict), it's the
+    enriched item with real body text, not the sparse original. This
+    matters downstream: a rejected item goes on to the LLM judge fallback
+    (pipeline/llm_judge.py), and that judge needs the real fetched text to
+    correctly recognize a mention (e.g. "the mayor") that never made it into
+    the collector's own title/snippet -- previously we fetched the real
+    page during this step but then discarded it on rejection, so the LLM
+    judge only ever saw the same sparse title/snippet resolve() already
+    couldn't match.
+
+    Fetches the real page only if the title/snippet-only pass would reject
+    AND the collector gives us a real, direct article URL (see
+    fetch_text.py -- true for GDELT, not for Google News' obfuscated
+    redirect links)."""
     resolved, reason = resolve(item, candidate)
     if resolved is not None:
-        return resolved, reason
+        return resolved, reason, resolved
 
     if not can_fetch_direct(item.get("collector", "")):
-        return None, reason
+        return None, reason, item
 
     fetched_text = fetch_article_text(item.get("source_url", ""))
     if not fetched_text:
-        return None, reason
+        return None, reason, item
 
     enriched = dict(item)
     enriched["text"] = fetched_text
@@ -103,6 +113,6 @@ def resolve_with_fetch_fallback(item: dict, candidate: dict):
             f"(was: {reason})",
             file=sys.stderr,
         )
-        return resolved2, None
+        return resolved2, None, resolved2
 
-    return None, reason
+    return None, reason, enriched

@@ -69,8 +69,11 @@ def load_records() -> list:
                     "classified_by": item.get("classified_by", ""),
                     "matched_on": item.get("matched_alias", ""),
                     "matched_context": item.get("matched_require_any", ""),
+                    "match_type": item.get("match_type", ""),
+                    "llm_reason": item.get("llm_reason", ""),
                     "backfilled": bool(item.get("backfilled", False)),
                     "summary": item.get("summary", ""),
+                    "mention_type": item.get("mention_type", ""),
                 }
             )
 
@@ -96,8 +99,11 @@ def load_records() -> list:
                     "classified_by": "",
                     "matched_on": "",
                     "matched_context": "",
+                    "match_type": "",
+                    "llm_reason": "",
                     "backfilled": False,
                     "summary": "",
+                    "mention_type": "",
                 }
             )
 
@@ -117,6 +123,9 @@ TEMPLATE = """<!doctype html>
     --accept: #0ca30c; --accept-bg: #e3f7e3;
     --reject: #d03b3b; --reject-bg: #fbe7e6;
     --row-hover: #f3f3f1; --input-bg: #ffffff; --card-bg: #ffffff;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.08);
+    --shadow-md: 0 2px 6px rgba(0,0,0,0.1);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.12);
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -125,83 +134,203 @@ TEMPLATE = """<!doctype html>
       --accept: #0ca30c; --accept-bg: #123312;
       --reject: #e66767; --reject-bg: #3a1414;
       --row-hover: #232322; --input-bg: #1a1a19; --card-bg: #1a1a19;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+      --shadow-md: 0 2px 6px rgba(0,0,0,0.4);
+      --shadow-lg: 0 4px 12px rgba(0,0,0,0.5);
     }
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 1.5rem; background: var(--page); color: var(--fg);
+    margin: 0; padding: 2rem; background: var(--page); color: var(--fg);
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    font-size: 14px;
+    font-size: 14px; line-height: 1.5;
   }
-  h1 { font-size: 1.25rem; margin: 0 0 0.25rem; }
-  h2 { font-size: 0.95rem; margin: 0 0 0.75rem; color: var(--fg); }
-  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.25rem; }
+  h1 {
+    font-size: 1.75rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.01em;
+    color: var(--fg);
+  }
+  h2 {
+    font-size: 0.95rem; font-weight: 700; margin: 0 0 1rem; color: var(--fg);
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary);
+  }
+  .subtitle {
+    color: var(--muted); font-size: 0.875rem; margin-bottom: 2rem; font-weight: 500;
+  }
   .card {
-    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
-    padding: 1rem 1.25rem; margin-bottom: 1.25rem;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.5rem; margin-bottom: 1.75rem; box-shadow: var(--shadow-sm);
   }
-  .summary { display: flex; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .summary { display: flex; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
   .stat { font-size: 0.85rem; color: var(--muted); }
-  .stat b { color: var(--fg); font-size: 1.1rem; font-weight: 600; }
-  .names-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
-  .name-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; }
-  .name-card .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.4rem; }
-  .name-card .cname { font-weight: 600; }
-  .name-card .office { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
-  .name-card .aliases { color: var(--secondary); font-size: 0.78rem; margin-top: 0.35rem; }
-  .name-card .aliases b { color: var(--fg); font-weight: 600; }
-  .controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
-  input[type=text], select {
-    padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--input-bg); color: var(--fg); font-size: 0.85rem;
+  .stat b {
+    color: var(--fg); font-size: 1.25rem; font-weight: 700; display: block;
+    margin-bottom: 0.25rem;
   }
-  input[type=text] { flex: 1; min-width: 200px; }
+  .names-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+  }
+  .name-card {
+    border: 1px solid var(--border); border-radius: 10px; padding: 1rem;
+    background: var(--bg); box-shadow: var(--shadow-sm);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .name-card:hover {
+    border-color: var(--secondary); box-shadow: var(--shadow-md);
+  }
+  .name-card .swatch {
+    display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+    margin-right: 0.6rem; vertical-align: middle;
+  }
+  .name-card .cname {
+    font-weight: 700; font-size: 0.95rem; margin-bottom: 0.4rem;
+    display: flex; align-items: center;
+  }
+  .name-card .office {
+    color: var(--muted); font-size: 0.8rem; margin-bottom: 0.6rem;
+    font-weight: 500;
+  }
+  .name-card .aliases {
+    color: var(--secondary); font-size: 0.8rem; line-height: 1.4;
+  }
+  .name-card .aliases b { color: var(--fg); font-weight: 700; }
+  .controls {
+    display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap;
+    align-items: center;
+  }
+  input[type=text], select {
+    padding: 0.6rem 0.85rem; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--input-bg); color: var(--fg); font-size: 0.875rem;
+    font-family: inherit; transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  input[type=text]:focus, select:focus {
+    outline: none; border-color: var(--secondary); box-shadow: 0 0 0 3px rgba(0,0,0,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    input[type=text]:focus, select:focus { box-shadow: 0 0 0 3px rgba(255,255,255,0.1); }
+  }
+  input[type=text] { flex: 1; min-width: 220px; }
   select { cursor: pointer; }
   a { color: inherit; }
-  .empty { color: var(--muted); padding: 2rem; text-align: center; }
+  .empty {
+    color: var(--muted); padding: 3rem 2rem; text-align: center;
+    font-size: 0.95rem;
+  }
   .muted-dash { color: var(--muted); }
 
-  .tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  .tabs {
+    display: flex; gap: 0; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border);
+  }
   .tab {
-    padding: 0.6rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--muted);
-    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none;
+    padding: 0.8rem 1.25rem; font-size: 0.9rem; font-weight: 700;
+    color: var(--muted); cursor: pointer; border-bottom: 3px solid transparent;
+    margin-bottom: -2px; user-select: none; transition: color 0.15s, border-color 0.15s;
+    text-transform: uppercase; letter-spacing: 0.04em;
   }
   .tab:hover { color: var(--fg); }
   .tab.active { color: var(--fg); border-bottom-color: var(--fg); }
-  .tab .count { color: var(--muted); font-weight: 500; margin-left: 0.3rem; }
-  .tab.active .count { color: var(--secondary); }
+  .tab .count {
+    color: var(--muted); font-weight: 600; margin-left: 0.5rem;
+    display: inline-block;
+  }
+  .tab.active .count { color: var(--fg); }
   .view { display: none; }
+  .candidate-pills {
+    display: flex; gap: 0.75rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+  }
+  .pill {
+    font: inherit; padding: 0.5rem 1rem; border-radius: 999px;
+    border: 1.5px solid var(--border); background: var(--card-bg);
+    color: var(--secondary); font-size: 0.875rem; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+    transition: all 0.15s;
+  }
+  .pill:hover {
+    border-color: var(--secondary); box-shadow: var(--shadow-sm);
+  }
+  .pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--pill-color, var(--muted)); flex-shrink: 0;
+  }
+  .pill.active {
+    background: var(--pill-color, var(--fg)); border-color: var(--pill-color, var(--fg));
+    color: #fff; box-shadow: var(--shadow-md);
+  }
+  .pill.active .dot { background: rgba(255,255,255,0.9); }
   .view.active { display: block; }
 
   /* Findings feed (accepted items) */
   .story-card {
-    background: var(--card-bg); border: 1px solid var(--border); border-left: 3px solid var(--candidate-color, var(--border));
-    border-radius: 8px; padding: 0.9rem 1.1rem; margin-bottom: 0.75rem;
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-left: 4px solid var(--candidate-color, var(--border));
+    border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem;
+    box-shadow: var(--shadow-sm); transition: box-shadow 0.15s, border-color 0.15s;
   }
-  .story-card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
-  .candidate-name { font-weight: 600; font-size: 0.78rem; color: var(--candidate-color, var(--fg)); }
-  .story-date { color: var(--muted); font-size: 0.76rem; }
+  .story-card:hover { box-shadow: var(--shadow-md); }
+  .story-card-header {
+    display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .candidate-name {
+    font-weight: 700; font-size: 0.8rem; color: var(--candidate-color, var(--fg));
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .story-date { color: var(--muted); font-size: 0.8rem; font-weight: 500; }
   .story-title {
-    display: block; font-weight: 600; font-size: 0.95rem; color: var(--fg); text-decoration: none;
-    line-height: 1.35; margin-bottom: 0.3rem;
+    display: block; font-weight: 700; font-size: 1rem; color: var(--fg);
+    text-decoration: none; line-height: 1.4; margin-bottom: 0.6rem;
   }
   .story-title:hover { text-decoration: underline; }
   .story-title.no-link { color: var(--fg); }
-  .story-summary { color: var(--secondary); font-size: 0.85rem; margin-bottom: 0.55rem; line-height: 1.45; }
-  .story-footer { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-  .story-source { color: var(--muted); font-size: 0.76rem; margin-left: auto; }
+  .story-summary {
+    color: var(--secondary); font-size: 0.875rem; margin-bottom: 0.75rem;
+    line-height: 1.5;
+  }
+  .story-footer {
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding-top: 0.75rem; border-top: 1px solid var(--border);
+  }
+  .story-source {
+    color: var(--muted); font-size: 0.8rem; margin-left: auto;
+    font-weight: 500;
+  }
   .badge {
-    display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
-    font-size: 0.68rem; font-weight: 600; white-space: nowrap;
+    display: inline-block; padding: 0.25rem 0.65rem; border-radius: 999px;
+    font-size: 0.75rem; font-weight: 700; white-space: nowrap;
+    text-transform: uppercase; letter-spacing: 0.02em;
   }
-  .badge.backfilled { color: var(--secondary); background: var(--border); font-weight: 500; }
+  .badge.backfilled {
+    color: var(--secondary); background: var(--border);
+    font-weight: 600; text-transform: none;
+  }
+  .badge.llm-judged {
+    color: #4a3aa7; background: #eae7f9;
+    font-weight: 600; cursor: help;
+  }
+  @media (prefers-color-scheme: dark) {
+    .badge.llm-judged { color: #9085e9; background: #241f38; }
+  }
+  .story-summary.llm-reason {
+    color: var(--secondary); font-style: italic; padding: 0.75rem;
+    background: var(--bg); border-radius: 6px; margin-bottom: 0.75rem;
+  }
   .mini-badge {
-    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 5px;
-    font-size: 0.72rem; background: var(--border); color: var(--secondary);
+    display: inline-block; padding: 0.3rem 0.6rem; border-radius: 6px;
+    font-size: 0.75rem; font-weight: 700; background: var(--border);
+    color: var(--secondary); text-transform: uppercase; letter-spacing: 0.02em;
   }
-  .mini-badge.risk-elevated, .mini-badge.risk-high { background: var(--reject-bg); color: var(--reject); }
-  .mini-badge.stance-favorable { background: var(--accept-bg); color: var(--accept); }
-  .mini-badge.stance-unfavorable { background: var(--reject-bg); color: var(--reject); }
+  .mini-badge.risk-elevated, .mini-badge.risk-high {
+    background: var(--reject-bg); color: var(--reject);
+  }
+  .mini-badge.stance-favorable {
+    background: var(--accept-bg); color: var(--accept);
+  }
+  .mini-badge.stance-unfavorable {
+    background: var(--reject-bg); color: var(--reject);
+  }
+  .mini-badge.mention-type {
+    background: var(--border); color: var(--secondary);
+  }
 
   /* Audit log (rejected items) -- compact table, this is a debug/audit view not the primary read */
   .table-card { padding: 0; overflow: hidden; }
@@ -211,28 +340,41 @@ TEMPLATE = """<!doctype html>
   col.col-collector { width: 110px; }
   col.col-reason { width: 220px; }
   th, td {
-    text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--border);
-    vertical-align: top; font-size: 0.82rem;
+    text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border);
+    vertical-align: top; font-size: 0.85rem;
   }
   th {
-    color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase;
-    letter-spacing: 0.04em; position: sticky; top: 0; background: var(--bg); white-space: nowrap;
+    color: var(--muted); font-weight: 700; font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.05em; position: sticky;
+    top: 0; background: var(--bg); white-space: nowrap;
   }
   tbody tr:hover { background: var(--row-hover); }
-  .reason-text { color: var(--reject); font-size: 0.78rem; }
-  .chart-wrap { position: relative; }
-  .chart-legend { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
-  .chart-legend .key { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--secondary); }
+  .reason-text { color: var(--reject); font-size: 0.8rem; font-weight: 500; }
+  .chart-wrap { position: relative; margin-top: 1rem; }
+  .chart-legend {
+    display: flex; gap: 1.5rem; margin-bottom: 1rem; flex-wrap: wrap;
+  }
+  .chart-legend .key {
+    display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem;
+    color: var(--secondary); font-weight: 600;
+  }
   .chart-legend .key .line { width: 14px; height: 2px; border-radius: 1px; }
   .chart-tooltip {
-    position: absolute; pointer-events: none; background: var(--card-bg); border: 1px solid var(--border);
-    border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-    display: none; min-width: 140px; z-index: 5;
+    position: absolute; pointer-events: none; background: var(--card-bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.9rem;
+    font-size: 0.8rem; box-shadow: var(--shadow-lg); display: none; min-width: 150px; z-index: 5;
   }
-  .chart-tooltip .date { color: var(--muted); font-size: 0.72rem; margin-bottom: 0.3rem; }
-  .chart-tooltip .row { display: flex; align-items: center; gap: 0.4rem; justify-content: space-between; }
+  .chart-tooltip .date {
+    color: var(--muted); font-size: 0.75rem; margin-bottom: 0.5rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em;
+  }
+  .chart-tooltip .row {
+    display: flex; align-items: center; gap: 0.6rem; justify-content: space-between;
+    margin-bottom: 0.4rem;
+  }
+  .chart-tooltip .row:last-child { margin-bottom: 0; }
   .chart-tooltip .row .line { width: 10px; height: 2px; flex-shrink: 0; }
-  .chart-tooltip .row .val { font-weight: 600; margin-left: auto; }
+  .chart-tooltip .row .val { font-weight: 700; margin-left: auto; }
   .chart-tooltip .row .lbl { color: var(--secondary); }
   svg text { fill: var(--muted); font-size: 10px; }
   .crosshair { stroke: var(--axis); stroke-width: 1; }
@@ -263,11 +405,12 @@ TEMPLATE = """<!doctype html>
   <div class="tab" id="tab-audit" data-tab="audit">Audit log <span class="count" id="count-audit">0</span></div>
 </div>
 
+<div class="candidate-pills" id="candidate-pills">
+  <button class="pill active" data-candidate="all">All candidates</button>
+</div>
+
 <div class="controls">
   <input type="text" id="search" placeholder="Search title, source, candidate, summary...">
-  <select id="filter-candidate">
-    <option value="all">All candidates</option>
-  </select>
   <select id="sort-order">
     <option value="date-desc">Newest first</option>
     <option value="date-asc">Oldest first</option>
@@ -310,20 +453,20 @@ const seriesColors = JSON.parse(document.getElementById('series-colors').textCon
 const roster = JSON.parse(document.getElementById('roster').textContent); // all tracked candidates, even with 0 findings
 const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-const candidateSelect = document.getElementById('filter-candidate');
-const candidateNames = [...new Set(records.map(r => r.candidate_name))].sort();
-for (const name of candidateNames) {
-  const opt = document.createElement('option');
-  opt.value = name; opt.textContent = name;
-  candidateSelect.appendChild(opt);
-}
-
 const candidateColor = {};
-[...new Map(records.map(r => [r.candidate_id, r.candidate_name])).entries()]
-  .sort((a, b) => a[1].localeCompare(b[1]))
-  .forEach(([cid], i) => {
-    candidateColor[cid] = seriesColors[i % seriesColors.length][isDark ? 'dark' : 'light'];
-  });
+roster.forEach(([cid], i) => {
+  candidateColor[cid] = seriesColors[i % seriesColors.length][isDark ? 'dark' : 'light'];
+});
+
+const pillsContainer = document.getElementById('candidate-pills');
+roster.forEach(([cid, name]) => {
+  const btn = document.createElement('button');
+  btn.className = 'pill';
+  btn.dataset.candidate = name;
+  btn.style.setProperty('--pill-color', candidateColor[cid]);
+  btn.innerHTML = `<span class="dot"></span>${escapeHtml(name)}`;
+  pillsContainer.appendChild(btn);
+});
 
 const RISK_ORDER = { high: 0, elevated: 1, low: 2, '': 3 };
 const state = { search: '', candidate: 'all', sort: 'date-desc', tab: 'findings' };
@@ -372,13 +515,16 @@ function renderFindings() {
         <span class="candidate-name">${escapeHtml(r.candidate_name)}</span>
         <span class="story-date">${(r.published_at || '').slice(0, 10)}</span>
         ${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}
+        ${r.match_type === 'llm_judged' ? `<span class="badge llm-judged" title="${escapeHtml(r.llm_reason)}">AI-verified match</span>` : ''}
       </div>
       ${titleHtml}
+      ${r.match_type === 'llm_judged' ? `<div class="story-summary llm-reason"><b>Why this matched:</b> ${escapeHtml(r.llm_reason)}</div>` : ''}
       ${r.summary ? `<div class="story-summary">${escapeHtml(r.summary)}</div>` : ''}
       <div class="story-footer">
         <span class="mini-badge">${escapeHtml(r.topic) || dash}</span>
         <span class="mini-badge stance-${escapeHtml(r.stance)}">${escapeHtml(r.stance) || dash}</span>
         <span class="mini-badge risk-${escapeHtml(r.risk_level)}">${escapeHtml(r.risk_level) || dash}</span>
+        ${r.mention_type ? `<span class="mini-badge mention-type">${escapeHtml(r.mention_type)}</span>` : ''}
         ${r.cluster_size > 1 ? `<span class="mini-badge">${r.cluster_size} outlets</span>` : ''}
         <span class="story-source">${meta}</span>
       </div>
@@ -417,8 +563,13 @@ function render() {
 document.getElementById('search').addEventListener('input', e => {
   state.search = e.target.value; render();
 });
-document.getElementById('filter-candidate').addEventListener('change', e => {
-  state.candidate = e.target.value; render();
+document.querySelectorAll('.pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    state.candidate = pill.dataset.candidate;
+    render();
+  });
 });
 document.getElementById('sort-order').addEventListener('change', e => {
   state.sort = e.target.value; renderFindings();

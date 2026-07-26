@@ -29,6 +29,7 @@ CLASSIFICATION_FIELDS = [
     "risk_level",
     "narrative_frame",
     "summary",
+    "mention_type",
 ]
 
 PROMPT_INSTRUCTIONS = """You are classifying news/social hits about specific political candidates for a campaign monitoring digest.
@@ -42,12 +43,16 @@ For each item, produce an object with these fields:
 - risk_level: one of "low", "elevated", "high" -- elevated/high for scandal, controversy, legal issues, or a major attack line
 - narrative_frame: a short free-text label (a few words) describing the story's angle
 - summary: one or two plain-English sentences summarizing what the item actually says (not the headline restated -- the substance)
+- mention_type: a short free-text label (2-4 words) describing HOW the candidate is actually mentioned or involved in this specific piece -- not a fixed category, use whatever phrase actually fits, e.g. "directly quoted", "described taking action", "named as subject", "brief mention in passing", "one of several candidates profiled", "opinion piece target", "co-signer of letter". Be specific to what's actually happening in the text, not generic.
 
 Return ONLY a JSON object of the form {{"items": [ ... ]}}, one entry per item below, in the same order. No other text.
 
 Items:
 {items_block}
 """
+
+
+TEXT_CHARS_FOR_CLASSIFICATION = 8000  # matches fetch_text.py's own cap -- don't waste a fetch we already paid for
 
 
 def _build_items_block(items: list, candidates_map: dict) -> str:
@@ -57,7 +62,7 @@ def _build_items_block(items: list, candidates_map: dict) -> str:
         candidate_label = f"{info.get('name', item.get('candidate_id', ''))} ({info.get('office', '')})"
         lines.append(
             f"{i + 1}. id={item['id']} | candidate={candidate_label} | "
-            f"title: {item.get('title', '')} | text: {(item.get('text') or '')[:300]}"
+            f"title: {item.get('title', '')} | text: {(item.get('text') or '')[:TEXT_CHARS_FOR_CLASSIFICATION]}"
         )
     return "\n".join(lines)
 
@@ -142,6 +147,7 @@ def _rules_classify_one(item: dict) -> dict:
         "risk_level": risk_level,
         "narrative_frame": "",
         "summary": "",  # rules tier can't reliably summarize without an LLM
+        "mention_type": "",
     }
 
 

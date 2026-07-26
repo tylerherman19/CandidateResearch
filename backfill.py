@@ -18,11 +18,12 @@ Run once: `python backfill.py [days]` (default 60).
 import sys
 from datetime import datetime, timezone
 
-from run import ENV_PATH, load_candidates, load_dotenv
+from run import ENV_PATH, finalize_rejections, load_candidates, load_dotenv
 from collectors import bluesky, gdelt, google_news, meta_ads, reddit, wispolitics, youtube
 from dashboard.generate import generate as generate_dashboard
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
+from pipeline.llm_judge import judge_rejected_items
 from pipeline.resolve import resolve_with_fetch_fallback
 from store.jsonl import append_items, append_rejections
 
@@ -73,25 +74,23 @@ def main() -> None:
     print(f"Backfilling {days} days for {len(candidates)} candidates (real APIs, wider window)...")
 
     resolved_items = []
-    rejections = []
+    pending_rejections = []
     for candidate in candidates:
         print(f"  collecting: {candidate['name']}")
         raw_items = backfill_collect(candidate, days)
         for item in raw_items:
-            resolved, reason = resolve_with_fetch_fallback(item, candidate)
+            resolved, reason, item_for_audit = resolve_with_fetch_fallback(item, candidate)
             if resolved is not None:
                 resolved_items.append(_backdate(resolved))
             else:
-                rejections.append(
-                    {
-                        "candidate_id": candidate["id"],
-                        "candidate_name": candidate["name"],
-                        "collector": item["collector"],
-                        "title": item["title"],
-                        "source_url": item["source_url"],
-                        "reason": reason,
-                    }
-                )
+                pending_rejections.append((item_for_audit, reason))
+
+    promoted, still_rejected = judge_rejected_items(pending_rejections, candidates_map)
+    resolved_items.extend(_backdate(item) for item in promoted)
+
+    resolved_items, demoted = verify_loose_matches(resolved_items, candidates_map)
+    still_rejected.extend(demoted)
+    rejections = finalize_rejections(candidates_map, still_rejected)
 
     by_candidate = {}
     for item in resolved_items:

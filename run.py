@@ -13,6 +13,7 @@ from digest.render import render_digest
 from digest.send import send_digest
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
+from pipeline.llm_judge import judge_rejected_items, verify_loose_matches
 from pipeline.resolve import resolve_with_fetch_fallback
 from pipeline.velocity import check_velocity
 from store.jsonl import append_items, append_rejections
@@ -56,9 +57,12 @@ def load_candidates() -> list:
 
 
 def run_sweep(candidates: list):
-    """Returns (resolved_items, rejections, collector_failures)."""
+    """Returns (resolved_items, pending_rejections, collector_failures).
+    pending_rejections is a list of (item, reason) tuples -- not yet
+    finalized, since judge_rejected_items() gets a chance to promote some
+    of them before anything is logged as a final rejection."""
     resolved_items = []
-    rejections = []
+    pending_rejections = []
     collector_failures = []
 
     for candidate in candidates:
@@ -74,22 +78,27 @@ def run_sweep(candidates: list):
                 continue
 
             for item in raw_items:
-                resolved, reason = resolve_with_fetch_fallback(item, candidate)
+                resolved, reason, item_for_audit = resolve_with_fetch_fallback(item, candidate)
                 if resolved is not None:
                     resolved_items.append(resolved)
                 else:
-                    rejections.append(
-                        {
-                            "candidate_id": candidate["id"],
-                            "candidate_name": candidate["name"],
-                            "collector": item["collector"],
-                            "title": item["title"],
-                            "source_url": item["source_url"],
-                            "reason": reason,
-                        }
-                    )
+                    pending_rejections.append((item_for_audit, reason))
 
-    return resolved_items, rejections, collector_failures
+    return resolved_items, pending_rejections, collector_failures
+
+
+def finalize_rejections(candidates_map: dict, still_rejected: list) -> list:
+    return [
+        {
+            "candidate_id": item["candidate_id"],
+            "candidate_name": candidates_map.get(item["candidate_id"], {}).get("name", item["candidate_id"]),
+            "collector": item["collector"],
+            "title": item["title"],
+            "source_url": item["source_url"],
+            "reason": reason,
+        }
+        for item, reason in still_rejected
+    ]
 
 
 def dedupe_by_candidate(candidates: list, resolved_items: list) -> list:
@@ -151,7 +160,14 @@ def main() -> None:
     candidates_map = {c["id"]: {"name": c["name"], "office": c["office"]} for c in candidates}
 
     print(f"Sweeping {len(candidates)} candidates across {len(COLLECTORS)} collectors...")
-    resolved_items, rejections, collector_failures = run_sweep(candidates)
+    resolved_items, pending_rejections, collector_failures = run_sweep(candidates)
+
+    promoted, still_rejected = judge_rejected_items(pending_rejections, candidates_map)
+    resolved_items.extend(promoted)
+
+    resolved_items, demoted = verify_loose_matches(resolved_items, candidates_map)
+    still_rejected.extend(demoted)
+    rejections = finalize_rejections(candidates_map, still_rejected)
 
     deduped_items = dedupe_by_candidate(candidates, resolved_items)
     classified_items = classify_items(deduped_items, candidates_map)
