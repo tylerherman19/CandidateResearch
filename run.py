@@ -90,13 +90,27 @@ def run_sweep(candidates: list):
 
 
 def finalize_rejections(candidates_map: dict, still_rejected: list) -> list:
+    """Keeps full item fidelity (id/text/source/published_at), not just
+    what the audit-log UI displays -- discovered the hard way: an earlier
+    version of this only kept candidate_id/collector/title/source_url/
+    reason, which meant a rejection could never be properly re-checked
+    later even after resolve.py's own matching rules improved (see
+    scripts/reprocess_rejections.py). Losing `text` in particular is
+    unrecoverable for any rejection whose source_url was a Google News
+    redirect -- there's no way to refetch it after the fact without the
+    real URL, which we never had. Keeping everything now costs nothing and
+    means every future rejection stays reprocessable."""
     return [
         {
+            "id": item.get("id", ""),
             "candidate_id": item["candidate_id"],
             "candidate_name": candidates_map.get(item["candidate_id"], {}).get("name", item["candidate_id"]),
             "collector": item["collector"],
             "title": item["title"],
+            "text": item.get("text", ""),
+            "source": item.get("source", ""),
             "source_url": item["source_url"],
+            "published_at": item.get("published_at", ""),
             "reason": reason,
         }
         for item, reason in still_rejected
