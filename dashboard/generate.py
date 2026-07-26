@@ -405,7 +405,22 @@ TEMPLATE = """<!doctype html>
     .story-footer { gap: 0.35rem; }
     .story-source { margin-left: 0; width: 100%; order: 99; margin-top: 0.3rem; }
     .mini-badge { font-size: 0.68rem; padding: 0.12rem 0.45rem; }
+    /* table { width: 100% } (desktop, above) is what actually broke this:
+       under table-layout:fixed, a 100%-wide table forces its columns to
+       fit inside the card's ~356px mobile width, so col-title's "auto"
+       computes to 0px once the other three fixed-width columns already
+       consume it all -- confirmed directly (col-title reported width:0px
+       via getComputedStyle), and since overflowing cell text isn't
+       clipped, the 0-width title column's text visually overlapped the
+       collector column instead of scrolling. Overriding the table to a
+       fixed total width wider than the card, with all four columns given
+       explicit widths (including title, which desktop leaves as "auto"),
+       is what actually makes .table-card's overflow-x:auto do anything --
+       a scrollable-but-still-squished table isn't a fix if the squishing
+       already destroyed a column. */
+    table { width: 620px; }
     col.col-candidate { width: 120px; }
+    col.col-title { width: 250px; }
     col.col-collector { width: 90px; }
     col.col-reason { width: 160px; }
     th, td { padding: 0.6rem 0.75rem; font-size: 0.8rem; }
