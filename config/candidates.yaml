@@ -23,7 +23,32 @@ candidates:
       - "District 76"
       - "AD 76"
       - "76th District"
-      - "Francesca Hong"  # outgoing AD76 incumbent -- articles about her successor are this race
+      # NOT bare "Francesca Hong" -- removed after a real false-positive
+      # regression: she's a sitting state rep now running for governor,
+      # so her bare name alone matches her own unrelated gubernatorial
+      # coverage (TIME cover, Marquette poll, governor announcement --
+      # confirmed directly, dozens of these wrongly matched both AD76
+      # candidates). These two specific phrases still catch genuine
+      # succession coverage ("who takes over her seat") without matching
+      # her own campaign news, and "District 76"/"76th Assembly District"
+      # above already independently catch the general case (confirmed:
+      # the real succession article that motivated adding her name at all
+      # also says "Assembly District 76" directly, so nothing is lost).
+      - "Francesca Hong's seat"
+      - "succeed Francesca Hong"
+    # Only gates a race_context_only match (no name present at all) --
+    # never a direct name match, which is real evidence on its own. Fixes
+    # a second real false-positive class the above phrase-narrowing
+    # didn't catch: any article about Francesca Hong's OWN governor
+    # campaign still routinely cites her "76th Assembly District" seat as
+    # incidental bio context when introducing her (journalists do this
+    # constantly), which independently trips the race_context_terms match
+    # above even without her bare name being a configured term anymore.
+    # "governor" reliably appears in her own campaign coverage and
+    # essentially never in genuine AD76-race coverage -- confirmed
+    # directly against both classes before adding this.
+    race_context_exclude_any:
+      - "governor"
 
   - id: bennett
     name: "Juliana Bennett"
@@ -42,7 +67,32 @@ candidates:
       - "District 76"
       - "AD 76"
       - "76th District"
-      - "Francesca Hong"  # outgoing AD76 incumbent -- articles about her successor are this race
+      # NOT bare "Francesca Hong" -- removed after a real false-positive
+      # regression: she's a sitting state rep now running for governor,
+      # so her bare name alone matches her own unrelated gubernatorial
+      # coverage (TIME cover, Marquette poll, governor announcement --
+      # confirmed directly, dozens of these wrongly matched both AD76
+      # candidates). These two specific phrases still catch genuine
+      # succession coverage ("who takes over her seat") without matching
+      # her own campaign news, and "District 76"/"76th Assembly District"
+      # above already independently catch the general case (confirmed:
+      # the real succession article that motivated adding her name at all
+      # also says "Assembly District 76" directly, so nothing is lost).
+      - "Francesca Hong's seat"
+      - "succeed Francesca Hong"
+    # Only gates a race_context_only match (no name present at all) --
+    # never a direct name match, which is real evidence on its own. Fixes
+    # a second real false-positive class the above phrase-narrowing
+    # didn't catch: any article about Francesca Hong's OWN governor
+    # campaign still routinely cites her "76th Assembly District" seat as
+    # incidental bio context when introducing her (journalists do this
+    # constantly), which independently trips the race_context_terms match
+    # above even without her bare name being a configured term anymore.
+    # "governor" reliably appears in her own campaign coverage and
+    # essentially never in genuine AD76-race coverage -- confirmed
+    # directly against both classes before adding this.
+    race_context_exclude_any:
+      - "governor"
 
   - id: rhodes_conway
     name: "Satya Rhodes-Conway"

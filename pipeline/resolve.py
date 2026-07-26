@@ -35,13 +35,47 @@ matching on "Madison").
 
 import re
 import sys
+from datetime import datetime, timedelta, timezone
 
 from pipeline.fetch_text import fetch_article_text, resolve_real_url
+
+# race_context_terms are office/geography identifiers ("76th Assembly
+# District", "Madison mayor") that are stable across many election
+# cycles -- a match on one of these alone (no candidate name present)
+# says "this is about this seat," not "this is about this year's
+# candidates for this seat." Confirmed as a real false-positive source,
+# not theoretical: broadening collectors/wi_outlets.py's TNCMS search to
+# query race_context_terms directly (previously only queried by name)
+# pulled in over a decade of unrelated coverage of *prior* AD76
+# officeholders (2012, 2016, 2020 articles about Chris Taylor and Jon
+# Rygiewicz -- neither a current candidate) purely because "Assembly
+# District 76" doesn't change year to year. A literal name match has no
+# such problem -- if her name is actually in the text, it's about her,
+# any date -- so this gate applies only to the race-context-only path.
+RACE_CONTEXT_ONLY_MAX_AGE_DAYS = 548  # ~18 months; comfortably covers a full
+# active campaign cycle without reaching into a previous election for the
+# same seat. A relative window, not a hardcoded date, so this doesn't need
+# manual updating next cycle.
 
 
 def _find_offsets(phrase: str, text_lower: str) -> list:
     pattern = r"\b" + re.escape(phrase.lower()) + r"\b"
     return [m.start() for m in re.finditer(pattern, text_lower)]
+
+
+def _is_recent_enough(published_at: str) -> bool:
+    """No published_at at all is treated as NOT recent enough -- for a
+    race-context-only match (no name, so recency is the only signal that
+    it's about the current cycle), an unknown date is exactly the failure
+    mode this gate exists to prevent, not a reason to skip the check."""
+    if not published_at:
+        return False
+    try:
+        dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RACE_CONTEXT_ONLY_MAX_AGE_DAYS)
+    return dt >= cutoff
 
 
 def resolve(item: dict, candidate: dict):
@@ -65,6 +99,23 @@ def resolve(item: dict, candidate: dict):
     race_context_terms = candidate.get("race_context_terms", [])
     race_hit = next((term for term in race_context_terms if _find_offsets(term, text_lower)), None)
     if race_hit:
+        if not _is_recent_enough(item.get("published_at", "")):
+            return None, "race_context_only_but_too_old"
+        # Gates only this loose path, not a direct name match above --
+        # confirmed a real case where a genuine name-matched article
+        # ("Disability Pride Flag raising ceremony") happened to mention
+        # "governor" in an unrelated civic-proclamation context. A direct
+        # name match is strong enough evidence that it shouldn't be vetoed
+        # by a generic word appearing elsewhere; race_context_only has no
+        # such evidence (no name at all), so it's the one path that needs
+        # this extra safety net. See race_context_exclude_any's own
+        # config comment for the concrete case this fixes.
+        race_exclude_hit = next(
+            (term for term in candidate.get("race_context_exclude_any", []) if _find_offsets(term, text_lower)),
+            None,
+        )
+        if race_exclude_hit:
+            return None, f"race_context_excluded_term:{race_exclude_hit}"
         resolved = dict(item)
         resolved["matched_alias"] = ""
         resolved["matched_require_any"] = race_hit

@@ -65,6 +65,7 @@ TNCMS_OUTLETS = [
     ("captimes", "The Capital Times", "captimes.com"),
     ("wsj_madison", "Wisconsin State Journal", "madison.com"),
     ("channel3000", "Channel 3000 / WISC-TV", "www.channel3000.com"),
+    ("wkow", "WKOW 27", "www.wkow.com"),  # confirmed same TNCMS search interface
 ]
 
 ISTHMUS_FEED_URL = "https://isthmus.com/api/rss/content.rss"
@@ -96,11 +97,20 @@ def _get_with_retry(url: str):
 
 
 def _collect_tncms_outlet(candidate: dict, display_name: str, domain: str, cutoff) -> list:
+    # Querying by name alone misses a real, recurring pattern: a "N
+    # candidates running for this seat" roundup that covers the whole
+    # race without naming any one candidate specifically (the same
+    # pattern race_context_terms exists for in resolve.py, and that the
+    # Isthmus collector already searches on -- confirmed directly this
+    # session that a TNCMS outlet's name-only search misses this class of
+    # article even when the outlet DOES cover the race). Searching
+    # race_context_terms too catches those the same way Isthmus does.
     name_phrases = [candidate["name"]] + candidate.get("aliases", [])
+    race_phrases = candidate.get("race_context_terms", [])
     items = []
     seen_links = set()
 
-    for phrase in name_phrases:
+    for phrase in name_phrases + race_phrases:
         url = f"https://{domain}/search/?f=rss&t=article&q={quote(phrase)}"
         try:
             resp = _get_with_retry(url)
