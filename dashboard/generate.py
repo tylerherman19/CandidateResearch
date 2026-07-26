@@ -156,57 +156,70 @@ TEMPLATE = """<!doctype html>
     background: var(--input-bg); color: var(--fg); font-size: 0.85rem;
   }
   input[type=text] { flex: 1; min-width: 200px; }
-  .table-card { padding: 0; overflow: hidden; }
-  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  col.col-status { width: 100px; }
-  col.col-candidate { width: 150px; }
-  col.col-story { width: auto; }
-  col.col-matched { width: 190px; }
-  col.col-class { width: 150px; }
-  col.col-outlets { width: 70px; }
-  th, td {
-    text-align: left; padding: 0.65rem 0.9rem; border-bottom: 1px solid var(--border);
-    vertical-align: top;
+  select { cursor: pointer; }
+  a { color: inherit; }
+  .empty { color: var(--muted); padding: 2rem; text-align: center; }
+  .muted-dash { color: var(--muted); }
+
+  .tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 0.6rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--muted);
+    cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; user-select: none;
   }
-  th {
-    cursor: pointer; user-select: none; color: var(--muted);
-    font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
-    position: sticky; top: 0; background: var(--bg); white-space: nowrap;
+  .tab:hover { color: var(--fg); }
+  .tab.active { color: var(--fg); border-bottom-color: var(--fg); }
+  .tab .count { color: var(--muted); font-weight: 500; margin-left: 0.3rem; }
+  .tab.active .count { color: var(--secondary); }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* Findings feed (accepted items) */
+  .story-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-left: 3px solid var(--candidate-color, var(--border));
+    border-radius: 8px; padding: 0.9rem 1.1rem; margin-bottom: 0.75rem;
   }
-  th:hover { color: var(--fg); }
-  th.sorted::after { content: attr(data-arrow); margin-left: 0.3rem; }
-  tbody tr:hover { background: var(--row-hover); }
-  tbody td { font-size: 0.85rem; }
+  .story-card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
+  .candidate-name { font-weight: 600; font-size: 0.78rem; color: var(--candidate-color, var(--fg)); }
+  .story-date { color: var(--muted); font-size: 0.76rem; }
+  .story-title {
+    display: block; font-weight: 600; font-size: 0.95rem; color: var(--fg); text-decoration: none;
+    line-height: 1.35; margin-bottom: 0.3rem;
+  }
+  .story-title:hover { text-decoration: underline; }
+  .story-title.no-link { color: var(--fg); }
+  .story-summary { color: var(--secondary); font-size: 0.85rem; margin-bottom: 0.55rem; line-height: 1.45; }
+  .story-footer { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+  .story-source { color: var(--muted); font-size: 0.76rem; margin-left: auto; }
   .badge {
     display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px;
     font-size: 0.68rem; font-weight: 600; white-space: nowrap;
   }
-  .badge.accepted { color: var(--accept); background: var(--accept-bg); }
-  .badge.rejected { color: var(--reject); background: var(--reject-bg); }
   .badge.backfilled { color: var(--secondary); background: var(--border); font-weight: 500; }
-  .status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
-  a { color: inherit; }
-  .empty { color: var(--muted); padding: 2rem; text-align: center; }
-  .muted-dash { color: var(--muted); }
-  .story-title {
-    display: block; font-weight: 600; color: var(--fg); text-decoration: none;
-    line-height: 1.35; margin-bottom: 0.2rem;
-  }
-  .story-title:hover { text-decoration: underline; }
-  .story-title.no-link { color: var(--fg); }
-  .story-meta { color: var(--muted); font-size: 0.76rem; }
-  .story-summary { color: var(--secondary); font-size: 0.78rem; margin-top: 0.3rem; line-height: 1.4; }
-  .reason-text { color: var(--reject); font-size: 0.78rem; }
-  .matched-name { font-weight: 600; font-size: 0.82rem; }
-  .matched-context { color: var(--muted); font-size: 0.74rem; margin-top: 0.15rem; }
-  .mini-badges { display: flex; flex-direction: column; gap: 0.25rem; align-items: flex-start; }
   .mini-badge {
-    display: inline-block; padding: 0.1rem 0.45rem; border-radius: 5px;
-    font-size: 0.7rem; background: var(--border); color: var(--secondary);
+    display: inline-block; padding: 0.15rem 0.5rem; border-radius: 5px;
+    font-size: 0.72rem; background: var(--border); color: var(--secondary);
   }
   .mini-badge.risk-elevated, .mini-badge.risk-high { background: var(--reject-bg); color: var(--reject); }
   .mini-badge.stance-favorable { background: var(--accept-bg); color: var(--accept); }
   .mini-badge.stance-unfavorable { background: var(--reject-bg); color: var(--reject); }
+
+  /* Audit log (rejected items) -- compact table, this is a debug/audit view not the primary read */
+  .table-card { padding: 0; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  col.col-candidate { width: 160px; }
+  col.col-title { width: auto; }
+  col.col-collector { width: 110px; }
+  col.col-reason { width: 220px; }
+  th, td {
+    text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--border);
+    vertical-align: top; font-size: 0.82rem;
+  }
+  th {
+    color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.04em; position: sticky; top: 0; background: var(--bg); white-space: nowrap;
+  }
+  tbody tr:hover { background: var(--row-hover); }
+  .reason-text { color: var(--reject); font-size: 0.78rem; }
   .chart-wrap { position: relative; }
   .chart-legend { display: flex; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
   .chart-legend .key { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--secondary); }
@@ -245,43 +258,47 @@ TEMPLATE = """<!doctype html>
   </div>
 </div>
 
-<div class="summary">
-  <div class="stat"><b id="stat-total">0</b> total</div>
-  <div class="stat"><b id="stat-accepted">0</b> accepted</div>
-  <div class="stat"><b id="stat-rejected">0</b> rejected</div>
+<div class="tabs">
+  <div class="tab active" id="tab-findings" data-tab="findings">Findings <span class="count" id="count-findings">0</span></div>
+  <div class="tab" id="tab-audit" data-tab="audit">Audit log <span class="count" id="count-audit">0</span></div>
 </div>
 
 <div class="controls">
-  <input type="text" id="search" placeholder="Search title, source, candidate, reason, matched name...">
-  <select id="filter-status">
-    <option value="all">All statuses</option>
-    <option value="accepted">Accepted</option>
-    <option value="rejected">Rejected</option>
-  </select>
+  <input type="text" id="search" placeholder="Search title, source, candidate, summary...">
   <select id="filter-candidate">
     <option value="all">All candidates</option>
   </select>
+  <select id="sort-order">
+    <option value="date-desc">Newest first</option>
+    <option value="date-asc">Oldest first</option>
+    <option value="risk">Risk level</option>
+    <option value="candidate">Candidate</option>
+  </select>
 </div>
 
-<div class="card table-card">
-<table>
-  <colgroup>
-    <col class="col-status"><col class="col-candidate"><col class="col-story">
-    <col class="col-matched"><col class="col-class"><col class="col-outlets">
-  </colgroup>
-  <thead>
-    <tr>
-      <th data-key="status">Status</th>
-      <th data-key="candidate_name">Candidate</th>
-      <th data-key="published_at">Story</th>
-      <th data-key="matched_on">Matched on</th>
-      <th data-key="risk_level">Classification</th>
-      <th data-key="cluster_size">Outlets</th>
-    </tr>
-  </thead>
-  <tbody id="rows"></tbody>
-</table>
-<div class="empty" id="empty-state" style="display:none">No rows match.</div>
+<div class="view active" id="view-findings">
+  <div id="findings-feed"></div>
+  <div class="empty" id="findings-empty" style="display:none">No findings match.</div>
+</div>
+
+<div class="view" id="view-audit">
+  <div class="card table-card">
+    <table>
+      <colgroup>
+        <col class="col-candidate"><col class="col-title"><col class="col-collector"><col class="col-reason">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Candidate</th>
+          <th>Title</th>
+          <th>Collector</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody id="audit-rows"></tbody>
+    </table>
+    <div class="empty" id="audit-empty" style="display:none">No rejections match.</div>
+  </div>
 </div>
 
 <script type="application/json" id="data">__DATA_JSON__</script>
@@ -299,98 +316,117 @@ for (const name of candidateNames) {
   candidateSelect.appendChild(opt);
 }
 
-let sortKey = 'published_at';
-let sortDir = -1;
-const state = { search: '', status: 'all', candidate: 'all' };
+const candidateColor = {};
+[...new Map(records.map(r => [r.candidate_id, r.candidate_name])).entries()]
+  .sort((a, b) => a[1].localeCompare(b[1]))
+  .forEach(([cid], i) => {
+    candidateColor[cid] = seriesColors[i % seriesColors.length][isDark ? 'dark' : 'light'];
+  });
+
+const RISK_ORDER = { high: 0, elevated: 1, low: 2, '': 3 };
+const state = { search: '', candidate: 'all', sort: 'date-desc', tab: 'findings' };
 
 function escapeHtml(s) {
   return (s || '').toString()
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-function render() {
-  let rows = records.filter(r => {
-    if (state.status !== 'all' && r.status !== state.status) return false;
-    if (state.candidate !== 'all' && r.candidate_name !== state.candidate) return false;
-    if (state.search) {
-      const hay = [r.title, r.source, r.candidate_name, r.reason, r.collector, r.topic, r.stance, r.matched_on, r.summary]
-        .join(' ').toLowerCase();
-      if (!hay.includes(state.search.toLowerCase())) return false;
-    }
-    return true;
-  });
+function matchesSearch(r, hayFields) {
+  if (!state.search) return true;
+  const hay = hayFields.join(' ').toLowerCase();
+  return hay.includes(state.search.toLowerCase());
+}
 
-  rows.sort((a, b) => {
-    const av = (a[sortKey] || '').toString();
-    const bv = (b[sortKey] || '').toString();
-    if (av < bv) return -1 * sortDir;
-    if (av > bv) return 1 * sortDir;
-    return 0;
-  });
+function sortFindings(rows) {
+  const sorted = [...rows];
+  if (state.sort === 'date-desc') sorted.sort((a, b) => (b.published_at || '').localeCompare(a.published_at || ''));
+  else if (state.sort === 'date-asc') sorted.sort((a, b) => (a.published_at || '').localeCompare(b.published_at || ''));
+  else if (state.sort === 'risk') sorted.sort((a, b) => (RISK_ORDER[a.risk_level] ?? 3) - (RISK_ORDER[b.risk_level] ?? 3));
+  else if (state.sort === 'candidate') sorted.sort((a, b) => a.candidate_name.localeCompare(b.candidate_name));
+  return sorted;
+}
 
-  document.getElementById('stat-total').textContent = records.length;
-  document.getElementById('stat-accepted').textContent = records.filter(r => r.status === 'accepted').length;
-  document.getElementById('stat-rejected').textContent = records.filter(r => r.status === 'rejected').length;
+const dash = '<span class="muted-dash">&mdash;</span>';
 
-  const dash = '<span class="muted-dash">&mdash;</span>';
+function renderFindings() {
+  let rows = records.filter(r => r.status === 'accepted');
+  if (state.candidate !== 'all') rows = rows.filter(r => r.candidate_name === state.candidate);
+  rows = rows.filter(r => matchesSearch(r, [r.title, r.source, r.candidate_name, r.topic, r.stance, r.matched_on, r.summary]));
+  rows = sortFindings(rows);
 
-  const tbody = document.getElementById('rows');
-  tbody.innerHTML = rows.map(r => {
+  document.getElementById('count-findings').textContent = rows.length;
+
+  const feed = document.getElementById('findings-feed');
+  feed.innerHTML = rows.map(r => {
     const meta = [r.source, (r.published_at || '').slice(0, 10), r.collector].filter(Boolean).join(' &middot; ');
     const titleHtml = r.url
       ? `<a class="story-title" href="${escapeHtml(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.title)}</a>`
       : `<span class="story-title no-link">${escapeHtml(r.title)}</span>`;
-
-    const matchedCell = r.status === 'accepted'
-      ? `<div class="matched-name">${escapeHtml(r.matched_on) || dash}</div>${r.matched_context ? `<div class="matched-context">near: ${escapeHtml(r.matched_context)}</div>` : ''}`
-      : `<div class="reason-text">${escapeHtml(r.reason)}</div>`;
-
-    const classCell = r.status === 'accepted'
-      ? `<div class="mini-badges">
-           <span class="mini-badge">${escapeHtml(r.topic) || dash}</span>
-           <span class="mini-badge stance-${escapeHtml(r.stance)}">${escapeHtml(r.stance) || dash}</span>
-           <span class="mini-badge risk-${escapeHtml(r.risk_level)}">${escapeHtml(r.risk_level) || dash}</span>
-         </div>`
-      : dash;
+    const color = candidateColor[r.candidate_id] || 'var(--border)';
 
     return `
-    <tr>
-      <td><div class="status-cell"><span class="badge ${r.status}">${r.status}</span>${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}</div></td>
-      <td>${escapeHtml(r.candidate_name)}</td>
-      <td>
-        ${titleHtml}
-        <div class="story-meta">${meta || dash}</div>
-        ${r.summary ? `<div class="story-summary">${escapeHtml(r.summary)}</div>` : ''}
-      </td>
-      <td>${matchedCell}</td>
-      <td>${classCell}</td>
-      <td>${r.cluster_size > 1 ? r.cluster_size : dash}</td>
-    </tr>
-  `;
+    <div class="story-card" style="--candidate-color: ${color}">
+      <div class="story-card-header">
+        <span class="candidate-name">${escapeHtml(r.candidate_name)}</span>
+        <span class="story-date">${(r.published_at || '').slice(0, 10)}</span>
+        ${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}
+      </div>
+      ${titleHtml}
+      ${r.summary ? `<div class="story-summary">${escapeHtml(r.summary)}</div>` : ''}
+      <div class="story-footer">
+        <span class="mini-badge">${escapeHtml(r.topic) || dash}</span>
+        <span class="mini-badge stance-${escapeHtml(r.stance)}">${escapeHtml(r.stance) || dash}</span>
+        <span class="mini-badge risk-${escapeHtml(r.risk_level)}">${escapeHtml(r.risk_level) || dash}</span>
+        ${r.cluster_size > 1 ? `<span class="mini-badge">${r.cluster_size} outlets</span>` : ''}
+        <span class="story-source">${meta}</span>
+      </div>
+    </div>`;
   }).join('');
 
-  document.getElementById('empty-state').style.display = rows.length ? 'none' : 'block';
+  document.getElementById('findings-empty').style.display = rows.length ? 'none' : 'block';
+}
 
-  document.querySelectorAll('th[data-key]').forEach(th => {
-    th.classList.toggle('sorted', th.dataset.key === sortKey);
-    th.dataset.arrow = sortDir === 1 ? '\\u2191' : '\\u2193';
-  });
+function renderAudit() {
+  let rows = records.filter(r => r.status === 'rejected');
+  if (state.candidate !== 'all') rows = rows.filter(r => r.candidate_name === state.candidate);
+  rows = rows.filter(r => matchesSearch(r, [r.title, r.candidate_name, r.reason, r.collector]));
+  rows.sort((a, b) => a.candidate_name.localeCompare(b.candidate_name));
+
+  document.getElementById('count-audit').textContent = rows.length;
+
+  const tbody = document.getElementById('audit-rows');
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${escapeHtml(r.candidate_name)}</td>
+      <td>${escapeHtml(r.title)}</td>
+      <td>${escapeHtml(r.collector)}</td>
+      <td class="reason-text">${escapeHtml(r.reason)}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('audit-empty').style.display = rows.length ? 'none' : 'block';
+}
+
+function render() {
+  renderFindings();
+  renderAudit();
 }
 
 document.getElementById('search').addEventListener('input', e => {
   state.search = e.target.value; render();
 });
-document.getElementById('filter-status').addEventListener('change', e => {
-  state.status = e.target.value; render();
-});
 document.getElementById('filter-candidate').addEventListener('change', e => {
   state.candidate = e.target.value; render();
 });
-document.querySelectorAll('th[data-key]').forEach(th => {
-  th.addEventListener('click', () => {
-    if (sortKey === th.dataset.key) { sortDir *= -1; }
-    else { sortKey = th.dataset.key; sortDir = 1; }
-    render();
+document.getElementById('sort-order').addEventListener('change', e => {
+  state.sort = e.target.value; renderFindings();
+});
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('view-' + tab.dataset.tab).classList.add('active');
   });
 });
 

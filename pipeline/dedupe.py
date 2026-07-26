@@ -1,7 +1,16 @@
 """Cluster near-duplicate items (the same wire story running in many
-outlets) via simhash on title + first 500 chars of text. Keeps one
-canonical item per cluster (earliest published_at) and stores cluster_size
-as the reach signal -- a story in 300 outlets matters more than one in 3.
+outlets) via simhash on the title. Keeps one canonical item per cluster
+(earliest published_at) and stores cluster_size as the reach signal -- a
+story in 300 outlets matters more than one in 3.
+
+Title-only, not title+body: real-world data showed wire-syndicated copies
+of the identical headline (verbatim, same story) failing to cluster once
+resolve_with_fetch_fallback started populating real per-outlet article text
+-- each outlet's page has enough of its own boilerplate/framing/byline
+noise that body-text similarity dropped below threshold even though the
+headline was byte-for-byte the same. The title is the far more reliable
+duplicate signal for wire content; outlets routinely rewrite or pad the
+body but rarely touch a syndicated headline.
 
 Pure stdlib (hashlib) -- no new dependency for a technique this small.
 """
@@ -46,7 +55,7 @@ def cluster_items(items: list, threshold_bits: int = DEFAULT_THRESHOLD_BITS) -> 
     if not items:
         return []
 
-    signatures = [simhash(f"{item.get('title', '')} {(item.get('text') or '')[:500]}") for item in items]
+    signatures = [simhash(item.get("title", "")) for item in items]
 
     n = len(items)
     parent = list(range(n))
