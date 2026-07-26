@@ -114,6 +114,7 @@ TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Candidate Research Monitor</title>
 <style>
   :root {
@@ -333,7 +334,7 @@ TEMPLATE = """<!doctype html>
   }
 
   /* Audit log (rejected items) -- compact table, this is a debug/audit view not the primary read */
-  .table-card { padding: 0; overflow: hidden; }
+  .table-card { padding: 0; overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   col.col-candidate { width: 160px; }
   col.col-title { width: auto; }
@@ -378,6 +379,39 @@ TEMPLATE = """<!doctype html>
   .chart-tooltip .row .lbl { color: var(--secondary); }
   svg text { fill: var(--muted); font-size: 10px; }
   .crosshair { stroke: var(--axis); stroke-width: 1; }
+
+  /* Mobile: everything above assumes desktop width. Narrow screens need
+     tighter spacing, stacked controls, a smaller type scale, and -- most
+     importantly -- the audit table (fixed-width columns that add up to
+     ~490px) needs to scroll horizontally within its own card instead of
+     overflowing the page or getting silently clipped. */
+  @media (max-width: 640px) {
+    body { padding: 1rem; font-size: 13px; }
+    h1 { font-size: 1.35rem; }
+    .subtitle { margin-bottom: 1.25rem; }
+    .card { padding: 1rem; margin-bottom: 1.25rem; border-radius: 10px; }
+    .names-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+    .summary { gap: 1.25rem; }
+    .tabs { gap: 0; }
+    .tab { padding: 0.5rem 0.7rem; font-size: 0.8rem; }
+    .candidate-pills { gap: 0.4rem; margin-bottom: 0.6rem; }
+    .pill { padding: 0.4rem 0.7rem; font-size: 0.78rem; }
+    .controls { flex-direction: column; align-items: stretch; gap: 0.6rem; }
+    input[type=text] { min-width: 0; width: 100%; }
+    select { width: 100%; }
+    .story-card { padding: 0.85rem; margin-bottom: 0.6rem; }
+    .story-card-header { gap: 0.4rem; }
+    .story-title { font-size: 0.9rem; }
+    .story-footer { gap: 0.35rem; }
+    .story-source { margin-left: 0; width: 100%; order: 99; margin-top: 0.3rem; }
+    .mini-badge { font-size: 0.68rem; padding: 0.12rem 0.45rem; }
+    col.col-candidate { width: 120px; }
+    col.col-collector { width: 90px; }
+    col.col-reason { width: 160px; }
+    th, td { padding: 0.6rem 0.75rem; font-size: 0.8rem; }
+    .chart-wrap svg { min-width: 560px; }
+    .chart-wrap { overflow-x: auto; }
+  }
 </style>
 </head>
 <body>
@@ -514,7 +548,6 @@ function renderFindings() {
       <div class="story-card-header">
         <span class="candidate-name">${escapeHtml(r.candidate_name)}</span>
         <span class="story-date">${(r.published_at || '').slice(0, 10)}</span>
-        ${r.backfilled ? '<span class="badge backfilled">backfilled</span>' : ''}
         ${r.match_type === 'llm_judged' ? `<span class="badge llm-judged" title="${escapeHtml(r.llm_reason)}">AI-verified match</span>` : ''}
       </div>
       ${titleHtml}

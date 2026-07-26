@@ -36,7 +36,7 @@ matching on "Madison").
 import re
 import sys
 
-from pipeline.fetch_text import can_fetch_direct, fetch_article_text
+from pipeline.fetch_text import fetch_article_text, resolve_real_url
 
 
 def _find_offsets(phrase: str, text_lower: str) -> list:
@@ -88,18 +88,19 @@ def resolve_with_fetch_fallback(item: dict, candidate: dict):
     judge only ever saw the same sparse title/snippet resolve() already
     couldn't match.
 
-    Fetches the real page only if the title/snippet-only pass would reject
-    AND the collector gives us a real, direct article URL (see
-    fetch_text.py -- true for GDELT, not for Google News' obfuscated
-    redirect links)."""
+    Fetches the real page only if the title/snippet-only pass would reject.
+    Most collectors already give a real, direct URL (GDELT included);
+    Google News' redirect links get resolved to the real URL first via a
+    title search (see fetch_text.resolve_real_url)."""
     resolved, reason = resolve(item, candidate)
     if resolved is not None:
         return resolved, reason, resolved
 
-    if not can_fetch_direct(item.get("collector", "")):
+    real_url = resolve_real_url(item)
+    if not real_url:
         return None, reason, item
 
-    fetched_text = fetch_article_text(item.get("source_url", ""))
+    fetched_text = fetch_article_text(real_url)
     if not fetched_text:
         return None, reason, item
 
