@@ -2,10 +2,11 @@ name: Daily Sweep
 
 on:
   schedule:
-    # 11:07 UTC daily -- roughly 5-6am Central depending on DST. Never :00,
-    # per queue-delay gotcha. GitHub Actions cron is UTC-only; adjust here
-    # if you want a different local wall-clock time.
+    # Twice daily, ~12h apart. Never :00, per queue-delay gotcha. GitHub
+    # Actions cron is UTC-only; adjust here for different local wall-clock
+    # times (currently roughly 5-6am and 5-6pm Central, depending on DST).
     - cron: "7 11 * * *"
+    - cron: "7 23 * * *"
   workflow_dispatch: {}
 
 jobs:
@@ -58,5 +59,5 @@ jobs:
           git config user.name "media-monitor-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/
-          git diff --cached --quiet || git commit -m "data: sweep $(date -u +%F)"
+          git diff --cached --quiet || git commit -m "data: sweep $(date -u +'%F %H:%M UTC')"
           git push
