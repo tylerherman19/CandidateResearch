@@ -303,9 +303,11 @@ TEMPLATE = """<!doctype html>
 
 <script type="application/json" id="data">__DATA_JSON__</script>
 <script type="application/json" id="series-colors">__SERIES_COLORS_JSON__</script>
+<script type="application/json" id="roster">__ROSTER_JSON__</script>
 <script>
 const records = JSON.parse(document.getElementById('data').textContent);
 const seriesColors = JSON.parse(document.getElementById('series-colors').textContent);
+const roster = JSON.parse(document.getElementById('roster').textContent); // all tracked candidates, even with 0 findings
 const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 const candidateSelect = document.getElementById('filter-candidate');
@@ -435,13 +437,15 @@ render();
 // ---- Daily volume chart (hand-rolled SVG, no charting library) ----
 function buildChart() {
   const accepted = records.filter(r => r.status === 'accepted' && r.published_at);
-  const candidateIds = [...new Map(accepted.map(r => [r.candidate_id, r.candidate_name])).entries()];
+  // Always show every tracked candidate, even ones with zero findings so far
+  // (a candidate with nothing yet shouldn't silently vanish from the chart).
+  const candidateIds = roster;
   if (candidateIds.length === 0) return;
 
   const toDay = iso => iso.slice(0, 10);
   const allDays = accepted.map(r => toDay(r.published_at));
-  const minDay = allDays.reduce((a, b) => a < b ? a : b);
   const maxDay = new Date().toISOString().slice(0, 10);
+  const minDay = allDays.length ? allDays.reduce((a, b) => a < b ? a : b) : maxDay;
 
   const days = [];
   for (let d = new Date(minDay + 'T00:00:00Z'); d <= new Date(maxDay + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
@@ -547,6 +551,7 @@ def generate() -> Path:
     candidates_full = _load_candidates_full()
     data_json = json.dumps(records, ensure_ascii=False).replace("</", "<\\/")
     series_colors_json = json.dumps(SERIES_COLORS)
+    roster_json = json.dumps([[c["id"], c["name"]] for c in candidates_full])
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     any_backfilled = any(r.get("backfilled") for r in records)
@@ -571,6 +576,7 @@ def generate() -> Path:
     html = (
         TEMPLATE.replace("__DATA_JSON__", data_json)
         .replace("__SERIES_COLORS_JSON__", series_colors_json)
+        .replace("__ROSTER_JSON__", roster_json)
         .replace("__GENERATED_AT__", generated_at)
         .replace("__BACKFILL_NOTE__", backfill_note)
         .replace("__NAME_CARDS__", "\n".join(name_cards))
