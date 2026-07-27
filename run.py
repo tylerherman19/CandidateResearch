@@ -13,8 +13,9 @@ from digest.render import render_digest
 from digest.send import send_digest
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
+from pipeline.enrich import Enricher
 from pipeline.llm_judge import judge_rejected_items, verify_loose_matches
-from pipeline.resolve import resolve_with_fetch_fallback
+from pipeline.resolve import resolve
 from pipeline.velocity import check_velocity
 from store.jsonl import append_items, append_rejections
 
@@ -60,11 +61,25 @@ def load_candidates() -> list:
 
 def run_sweep(candidates: list):
     """Returns (resolved_items, pending_rejections, collector_failures).
+
+    Two phases, deliberately. Phase one is the cheap deterministic
+    resolve() over everything collected -- pure, no network. Phase two
+    (pipeline/enrich.py) takes ONLY what phase one rejected and fetches
+    real article text for the whole set at once.
+
+    The split is what makes the full-text path work at all: resolving a
+    Google News redirect link used to be a per-item third-party search,
+    which rate limiting reduced to ~0% success within seconds of a sweep
+    starting. Batched, it's one RPC round trip per ~50 items. See
+    pipeline/gnews_url.py.
+
     pending_rejections is a list of (item, reason) tuples -- not yet
     finalized, since judge_rejected_items() gets a chance to promote some
-    of them before anything is logged as a final rejection."""
+    of them before anything is logged as a final rejection. Those items
+    carry whatever real body text phase two recovered, which is what the
+    judge needs to see a mention the collector's snippet never had."""
     resolved_items = []
-    pending_rejections = []
+    snippet_rejections = []
     collector_failures = []
 
     for candidate in candidates:
@@ -80,13 +95,23 @@ def run_sweep(candidates: list):
                 continue
 
             for item in raw_items:
-                resolved, reason, item_for_audit = resolve_with_fetch_fallback(item, candidate)
+                item["text_source"] = "collector"
+                resolved, reason = resolve(item, candidate)
                 if resolved is not None:
                     resolved_items.append(resolved)
                 else:
-                    pending_rejections.append((item_for_audit, reason))
+                    snippet_rejections.append((item, reason))
 
-    return resolved_items, pending_rejections, collector_failures
+    candidates_map = {c["id"]: c for c in candidates}
+    enricher = Enricher()
+    print(
+        f"\nFetching full text for {len(snippet_rejections)} snippet-only rejection(s)...",
+        file=sys.stderr,
+    )
+    rescued, pending_rejections = enricher.enrich_rejections(snippet_rejections, candidates_map)
+    resolved_items.extend(rescued)
+
+    return resolved_items, pending_rejections, collector_failures, enricher
 
 
 def finalize_rejections(candidates_map: dict, still_rejected: list) -> list:
@@ -99,7 +124,17 @@ def finalize_rejections(candidates_map: dict, still_rejected: list) -> list:
     unrecoverable for any rejection whose source_url was a Google News
     redirect -- there's no way to refetch it after the fact without the
     real URL, which we never had. Keeping everything now costs nothing and
-    means every future rejection stays reprocessable."""
+    means every future rejection stays reprocessable.
+
+    resolved_url is kept for exactly that reason, one step further on:
+    once pipeline/enrich.py has turned a Google News redirect into a real
+    article URL, that URL is the durable, refetchable handle on the story.
+    Persisting it means a reprocessing run skips resolution entirely, and
+    that an old rejection stays reprocessable even after Google's redirect
+    link rots. text_source/full_text_status are persisted so the audit log
+    answers the question that started all this -- "was this judged on real
+    article text, or on twenty words of headline?" -- without having to
+    open the article by hand to find out."""
     return [
         {
             "id": item.get("id", ""),
@@ -110,6 +145,10 @@ def finalize_rejections(candidates_map: dict, still_rejected: list) -> list:
             "text": item.get("text", ""),
             "source": item.get("source", ""),
             "source_url": item["source_url"],
+            "resolved_url": item.get("resolved_url", ""),
+            "url_resolution": item.get("url_resolution", ""),
+            "text_source": item.get("text_source", "collector"),
+            "full_text_status": item.get("full_text_status", "not_attempted"),
             "published_at": item.get("published_at", ""),
             "reason": reason,
         }
@@ -130,7 +169,13 @@ def dedupe_by_candidate(candidates: list, resolved_items: list) -> list:
     return deduped
 
 
-def print_summary(candidates: list, new_items: list, rejections: list, collector_failures: list) -> None:
+def print_summary(
+    candidates: list,
+    new_items: list,
+    rejections: list,
+    collector_failures: list,
+    enrichment_lines: list = None,
+) -> None:
     by_candidate = {c["id"]: [] for c in candidates}
     for item in new_items:
         by_candidate.setdefault(item["candidate_id"], []).append(item)
@@ -169,6 +214,14 @@ def print_summary(candidates: list, new_items: list, rejections: list, collector
         for candidate_name, collector_name, error in collector_failures:
             print(f"  - {collector_name} / {candidate_name}: {error}")
 
+    # Printed unconditionally, not only on failure. A silently-0% full-text
+    # path is the exact bug this rewrite fixes; a number you see every
+    # morning is what stops it recurring unnoticed.
+    if enrichment_lines:
+        print("\n=== Full-text coverage this run ===")
+        for line in enrichment_lines:
+            print(f"  {line}" if not line.startswith(" ") else line)
+
 
 def main() -> None:
     load_dotenv(ENV_PATH)
@@ -179,7 +232,7 @@ def main() -> None:
     candidates_map = {c["id"]: c for c in candidates}
 
     print(f"Sweeping {len(candidates)} candidates across {len(COLLECTORS)} collectors...")
-    resolved_items, pending_rejections, collector_failures = run_sweep(candidates)
+    resolved_items, pending_rejections, collector_failures, enricher = run_sweep(candidates)
 
     promoted, still_rejected = judge_rejected_items(pending_rejections, candidates_map)
     resolved_items.extend(promoted)
@@ -196,7 +249,8 @@ def main() -> None:
 
     velocity = check_velocity([c["id"] for c in candidates])
 
-    print_summary(candidates, new_items, rejections, collector_failures)
+    enrichment_lines = enricher.summary_lines()
+    print_summary(candidates, new_items, rejections, collector_failures, enrichment_lines)
     print(
         f"\n{len(new_items)} new item(s) stored this run "
         f"({len(classified_items) - len(new_items)} already in store, "
@@ -214,7 +268,9 @@ def main() -> None:
     for rejection in rejections:
         rejected_counts[rejection["candidate_id"]] = rejected_counts.get(rejection["candidate_id"], 0) + 1
 
-    digest_html = render_digest(candidates, items_by_candidate, velocity, rejected_counts)
+    digest_html = render_digest(
+        candidates, items_by_candidate, velocity, rejected_counts, enrichment_lines
+    )
     print(send_digest(digest_html))
 
     dashboard_path = generate_dashboard()

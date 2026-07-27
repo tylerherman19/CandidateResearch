@@ -21,6 +21,9 @@
   .badge.risk-elevated, .badge.risk-high { background: #fee2e2; color: #b91c1c; }
   .empty { padding: 16px; color: #6b7280; font-size: 13px; }
   .footer { color: #9ca3af; font-size: 11px; margin-top: 16px; }
+  .coverage { margin-top: 18px; padding: 10px 12px; border-radius: 6px; background: #f3f4f6; color: #4b5563; font-size: 12px; }
+  .coverage.degraded { background: #fef3c7; color: #92400e; }
+  .coverage ul { margin: 6px 0 0; padding-left: 18px; }
 </style>
 </head>
 <body>
@@ -59,6 +62,21 @@
     {% endif %}
   </div>
   {% endfor %}
+
+  {# Full-text coverage is reported in the digest, not just the terminal,
+     because the failure it reports is invisible by construction: when the
+     full-text path silently stops working, the digest simply contains
+     fewer stories, and nothing about a shorter email says "the fetcher is
+     broken" rather than "quiet news day". This block is what turns that
+     into something you notice over coffee. #}
+  {% if enrichment_lines %}
+  <div class="coverage{% if enrichment_degraded %} degraded{% endif %}">
+    <strong>Full-text coverage</strong>
+    <ul>
+      {% for line in enrichment_lines %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div class="footer">Candidate Research Monitor &middot; classification tier (gemini/groq/rules) logged per item in the JSONL store</div>
 </div>

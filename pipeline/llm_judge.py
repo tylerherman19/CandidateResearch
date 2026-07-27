@@ -40,7 +40,7 @@ TIMEOUT_SECONDS = 30
 
 PROMPT_INSTRUCTIONS = """You are doing a second-opinion review of news items a keyword-based filter already rejected as not being about a specific political candidate. Most of these rejections are correct -- the item is genuinely unrelated. A small number are wrong: the filter only sees the headline text, and a headline can plausibly be about the candidate's specific race without naming her or citing a district number explicitly (e.g. "Madison Dems running in Assembly primary" plausibly refers to a specific Assembly district's primary, if the candidate is running in exactly that kind of race).
 
-CRITICAL GROUNDING RULE, read this first: the "text" field below is frequently just the headline repeated -- there is often no real article body at all. Being told which candidate you're checking is NOT evidence that candidate appears in the text. Do not reason "since we're checking about her, and this article is plausibly about someone in her position, it must be her" -- that is not what "explicitly named" means. Before answering YES, find the literal words in the title/text that support it, and quote or point to them in your reason. If you cannot point to a specific word or phrase in the given text that identifies her, answer NO, even if the topic feels like an obvious match for who she is. Getting this wrong by inventing textual evidence that isn't there is a worse failure than a missed borderline case.
+CRITICAL GROUNDING RULE, read this first: each item carries a "text_kind" field telling you what you are actually looking at. "FULL ARTICLE TEXT" means the real article body was fetched and you are seeing it -- if her name genuinely isn't in there, that is real evidence against, and you should be correspondingly confident answering NO. "HEADLINE SNIPPET ONLY" or "NO TEXT AVAILABLE" means you are seeing roughly twenty words of headline, NOT the article -- her absence from it tells you almost nothing, so do not treat it as evidence either way; judge only on what those words positively establish. Being told which candidate you're checking is NOT evidence that candidate appears in the text. Do not reason "since we're checking about her, and this article is plausibly about someone in her position, it must be her" -- that is not what "explicitly named" means. Before answering YES, find the literal words in the title/text that support it, and quote or point to them in your reason. If you cannot point to a specific word or phrase in the given text that identifies her, answer NO, even if the topic feels like an obvious match for who she is. Getting this wrong by inventing textual evidence that isn't there is a worse failure than a missed borderline case.
 
 Answer YES if EITHER of these is literally true in the text:
   (a) THE CANDIDATE LISTED ABOVE (the one named in "candidate=") is herself specifically involved -- named, directly quoted, or described taking a specific action. The text must contain the actual words that establish this about HER, specifically -- not about anyone else who happens to be mentioned nearby, even a prior officeholder for her seat, a party leader, or another public figure discussed in the same piece. If the article is actually about a different named person's own career, campaign, or activities, and the candidate you're checking isn't independently named/quoted/described, that is NO -- even if that other person's name is a term you'd associate with this race.
@@ -80,9 +80,23 @@ def _build_items_block(items: list, candidates_map: dict) -> str:
         # regardless of where the text came from.
         raw_text = item.get("text") or ""
         text = "" if _looks_like_junk(raw_text) else raw_text
+        # Tell the judge which of the two situations it's actually in,
+        # per item, instead of making it guess. pipeline/enrich.py knows
+        # for a fact whether this text is the real article body or the
+        # collector's ~20-word headline snippet, and that distinction
+        # changes the right answer: absence of a name in a full article
+        # body is real evidence, absence in a headline snippet is no
+        # evidence at all. The prompt's grounding rule leans on this.
+        if item.get("text_source") == "full_text":
+            text_label = "FULL ARTICLE TEXT"
+        elif not text.strip():
+            text_label = "NO TEXT AVAILABLE -- headline only"
+        else:
+            text_label = "HEADLINE SNIPPET ONLY (not the article body)"
         lines.append(
             f"{i + 1}. id={item['id']} | candidate={candidate_label} | "
-            f"title: {item.get('title', '')} | text: {text[:8000]}"
+            f"title: {item.get('title', '')} | text_kind: {text_label} | "
+            f"text: {text[:8000]}"
         )
     return "\n".join(lines)
 

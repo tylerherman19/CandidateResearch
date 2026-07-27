@@ -24,7 +24,8 @@ from dashboard.generate import generate as generate_dashboard
 from pipeline.classify import classify_items
 from pipeline.dedupe import cluster_items
 from pipeline.llm_judge import judge_rejected_items, verify_loose_matches
-from pipeline.resolve import resolve_with_fetch_fallback
+from pipeline.enrich import Enricher
+from pipeline.resolve import resolve
 from store.jsonl import append_items, append_rejections
 
 
@@ -78,17 +79,30 @@ def main() -> None:
 
     print(f"Backfilling {days} days for {len(candidates)} candidates (real APIs, wider window)...")
 
+    # Same two-phase shape as run.run_sweep: cheap deterministic pass over
+    # everything, then ONE batched full-text pass over the rejects. Matters
+    # more here than in a daily sweep, since a backfill's reject pile is
+    # hundreds of items -- exactly the volume at which the old per-item
+    # URL-resolution search was rate-limited into uselessness.
     resolved_items = []
-    pending_rejections = []
+    snippet_rejections = []
     for candidate in candidates:
         print(f"  collecting: {candidate['name']}")
         raw_items = backfill_collect(candidate, days)
         for item in raw_items:
-            resolved, reason, item_for_audit = resolve_with_fetch_fallback(item, candidate)
+            item["text_source"] = "collector"
+            resolved, reason = resolve(item, candidate)
             if resolved is not None:
                 resolved_items.append(_backdate(resolved))
             else:
-                pending_rejections.append((item_for_audit, reason))
+                snippet_rejections.append((item, reason))
+
+    enricher = Enricher()
+    print(f"  fetching full text for {len(snippet_rejections)} snippet-only rejection(s)...")
+    rescued, pending_rejections = enricher.enrich_rejections(snippet_rejections, candidates_map)
+    resolved_items.extend(_backdate(item) for item in rescued)
+    for line in enricher.summary_lines():
+        print(f"  {line}")
 
     promoted, still_rejected = judge_rejected_items(pending_rejections, candidates_map)
     resolved_items.extend(_backdate(item) for item in promoted)

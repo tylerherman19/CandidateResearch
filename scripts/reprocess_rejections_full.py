@@ -20,7 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from run import load_dotenv, ENV_PATH, load_candidates, finalize_rejections
 from pipeline.normalize import normalize
-from pipeline.resolve import resolve_with_fetch_fallback
+from pipeline.enrich import Enricher
+from pipeline.resolve import resolve
 from pipeline.llm_judge import judge_rejected_items, verify_loose_matches
 from pipeline.dedupe import cluster_items
 from pipeline.classify import classify_items
@@ -53,7 +54,7 @@ def main() -> None:
     print(f"Reprocessing {len(to_reprocess)} unique no_name_match rejections through full chain...")
 
     resolved_items = []
-    pending_rejections = []
+    snippet_rejections = []
     for r in to_reprocess:
         candidate = candidates_by_id.get(r.get("candidate_id"))
         if not candidate:
@@ -67,11 +68,25 @@ def main() -> None:
             published_at=r.get("published_at", ""),
             text=r.get("text", ""),
         )
-        resolved, reason, item_for_audit = resolve_with_fetch_fallback(item, candidate)
+        # A previously-resolved real URL on the stored record is reused
+        # rather than re-derived -- resolution is the expensive half, and
+        # a Google News redirect link can rot while the real URL doesn't.
+        if r.get("resolved_url"):
+            item["resolved_url"] = r["resolved_url"]
+            item["url_resolution"] = r.get("url_resolution", "")
+        item["text_source"] = "collector"
+        resolved, reason = resolve(item, candidate)
         if resolved is not None:
             resolved_items.append(resolved)
         else:
-            pending_rejections.append((item_for_audit, reason))
+            snippet_rejections.append((item, reason))
+
+    enricher = Enricher()
+    print(f"Fetching full text for {len(snippet_rejections)} snippet-only rejection(s)...")
+    rescued, pending_rejections = enricher.enrich_rejections(snippet_rejections, candidates_map)
+    resolved_items.extend(rescued)
+    for line in enricher.summary_lines():
+        print(line)
 
     print(f"Direct resolve (with fetch): {len(resolved_items)} promoted, {len(pending_rejections)} still rejected")
 
