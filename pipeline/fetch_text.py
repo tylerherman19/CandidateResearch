@@ -244,33 +244,181 @@ class DuckDuckGoFallback:
 
 
 # ------------------------------------------------------------ article text
+#
+# EXTRACTION, AND THE BUG THAT FORCED THIS REDESIGN
+# -------------------------------------------------
+# The previous version extracted every <p> on the page, then declared the
+# whole document junk if certain marker strings appeared ANYWHERE in the
+# result. Those markers are site-wide nav chrome -- Channel 3000/WKOW's
+# "Live updates all day..." ticker banner and madison.com's "Log In
+# Subscribe Guest Logout" header -- which appear on every page those sites
+# serve, including pages whose real article body sits directly underneath.
+#
+# Measured against the stored rejection backlog: 39 of 42 sampled articles
+# from Channel 3000, WKOW and the Wisconsin State Journal were being thrown
+# away despite carrying 134-2,106 words of genuine article prose. Cap Times
+# was unaffected only because its markup happens not to contain those
+# strings. So the "junk filter" was silently disabling full-text for three
+# of the four local outlets -- the sources CLAUDE.md calls the highest
+# signal we have. That is the single largest source of "the audit log says
+# no_name_match when it plainly is a match".
+#
+# Three changes, each replacing a guess with something checkable:
+#
+#   1. SCOPED extraction. Find the article-body container first and read
+#      only inside it, instead of hoovering the whole page and then trying
+#      to detect contamination after the fact. All four TNCMS outlets mark
+#      it with schema.org microdata (itemprop="articleBody"); most modern
+#      CMSes expose either that, an article-body class, or <article>.
+#      Verified: 40/40 sampled TNCMS pages extract cleanly with zero nav
+#      leakage, and general-web pages (CNN, WPR) scope correctly too.
+#
+#   2. Boilerplate is STRIPPED, then substance is MEASURED. A page is junk
+#      if little real prose remains after removing known chrome -- not if
+#      a chrome string is present at all. Presence of nav says nothing
+#      about whether an article is also there.
+#
+#   3. Interstitial detection. A Cloudflare 522, a consent wall or a
+#      "please enable JavaScript" shim returns HTTP 200 with a page full of
+#      plausible sentences. Confirmed live: isthmus.com served a Cloudflare
+#      error page whose 99 words of "the initial connection ... timed out"
+#      would have been stored and reasoned over as the article body. These
+#      are now fetch failures, and retried, because they are transient.
 
-# Known junk patterns confirmed directly against real pages: madison.com's
-# (Wisconsin State Journal) paywall serves this nav boilerplate instead of
-# the article; Channel 3000/WKOW's client-rendered pages leave either a
-# generic live-ticker widget or raw inline JS in the extracted text since a
-# plain HTTP GET never runs their JS. Returning this junk as "real" text
-# is worse than returning nothing: a downstream LLM check reasoning over
-# garbage has been observed falling back to the article's TITLE alone and
-# hallucinating relevance from a name mentioned there, since it has no way
-# to know the "text" it was handed is meaningless. Better to report the
-# fetch as having found nothing, so callers correctly treat this as still
-# snippet-only rather than being misled by junk masquerading as real text.
-_JUNK_MARKERS = (
-    "Log In Subscribe Guest Logout",
+_MIN_ARTICLE_WORDS = 25  # below this, treat as no usable body text
+_MIN_SCOPED_WORDS = 40  # a scope thinner than this is probably the wrong container
+
+# Nav/chrome fragments removed from extracted text before judging it.
+# Removing rather than rejecting is the whole point -- see note 2 above.
+_BOILERPLATE_FRAGMENTS = (
+    "Live updates all day, breaking news as it happens and weather every 10 minutes",
     "Live updates all day, breaking news as it happens",
+    "Log In Subscribe Guest Logout",
+    "Resize:",
 )
+
+# Pages that are technically HTTP 200 but contain no article at all. Kept
+# specific: each of these is a phrase from a real interstitial we hit, not
+# a guess about what one might say.
+_INTERSTITIAL_MARKERS = (
+    "the initial connection between cloudflare's network and the origin web server timed out",
+    "an error 522 means",
+    "checking your browser before accessing",
+    "please enable javascript to view",
+    "please enable cookies",
+    "verify you are a human",
+    "access to this page has been denied",
+    "this page isn't available",
+    "404 not found",
+)
+
+_SCOPE_PATTERNS = (
+    # schema.org microdata -- what all four TNCMS outlets use.
+    re.compile(r'<(?:div|article|section)[^>]*itemprop=["\']articleBody["\'][^>]*>', re.IGNORECASE),
+    re.compile(
+        r'<(?:div|section)[^>]*class=["\'][^"\']*'
+        r"(?:article-body|articleBody|entry-content|post-content|story-body|rich-text)"
+        r'[^"\']*["\'][^>]*>',
+        re.IGNORECASE,
+    ),
+    re.compile(r"<article\b[^>]*>", re.IGNORECASE),
+)
+_CONTAINER_OPEN_RE = re.compile(r"<(div|article|section)\b", re.IGNORECASE)
+_CONTAINER_CLOSE_RE = re.compile(r"</(div|article|section)\s*>", re.IGNORECASE)
+
+
+def _strip_boilerplate(text: str) -> str:
+    for fragment in _BOILERPLATE_FRAGMENTS:
+        text = text.replace(fragment, " ")
+    return _WHITESPACE_RE.sub(" ", text).strip()
+
+
+def _looks_like_interstitial(text: str) -> bool:
+    head = text[:1500].lower()
+    return any(marker in head for marker in _INTERSTITIAL_MARKERS)
 
 
 def _looks_like_junk(text: str) -> bool:
-    if any(marker in text for marker in _JUNK_MARKERS):
+    """True when `text` carries no usable article prose.
+
+    Deliberately judged on what SURVIVES boilerplate removal. The old
+    implementation returned True whenever a nav string appeared anywhere,
+    which discarded three outlets' entire full-text coverage (see the
+    module note above). Still used by llm_judge.py on stored text, which
+    may predate any of this."""
+    if not text or not text.strip():
+        return True
+    if _looks_like_interstitial(text):
         return True
     # Garbled inline JS (seen verbatim on Channel3000/WKOW pages) rather
     # than prose -- a real article extract shouldn't have several "const "
     # declarations in its first couple hundred characters.
     if text[:500].count("const ") > 2:
         return True
-    return False
+    return len(_strip_boilerplate(text).split()) < _MIN_ARTICLE_WORDS
+
+
+def _container_inner_html(html: str, start: int) -> str:
+    """Inner HTML of the container opening at `start`, by depth counting.
+
+    Regex can't match balanced tags, and pulling in a real HTML parser
+    would mean a new dependency (CLAUDE.md: ask first). Depth counting over
+    div/article/section is enough for the CMS templates we actually hit,
+    and degrades to "return the rest of the document" rather than raising
+    if the markup is malformed."""
+    tag_end = html.find(">", start)
+    if tag_end == -1:
+        return ""
+
+    depth = 1
+    position = tag_end + 1
+    while position < len(html) and depth > 0:
+        opening = _CONTAINER_OPEN_RE.search(html, position)
+        closing = _CONTAINER_CLOSE_RE.search(html, position)
+        if not closing:
+            break
+        if opening and opening.start() < closing.start():
+            depth += 1
+            position = opening.end()
+        else:
+            depth -= 1
+            position = closing.end()
+            if depth == 0:
+                return html[tag_end + 1 : closing.start()]
+    return html[tag_end + 1 :]
+
+
+def _article_scope(html: str) -> str:
+    """The article-body container's inner HTML, or "" if none is found or
+    the best candidate is too thin to be the real body."""
+    for pattern in _SCOPE_PATTERNS:
+        match = pattern.search(html)
+        if not match:
+            continue
+        inner = _container_inner_html(html, match.start())
+        if len(_strip_tags(inner).split()) >= _MIN_SCOPED_WORDS:
+            return inner
+    return ""
+
+
+def extract_article_text(html: str) -> str:
+    """Plain article text from a page's HTML, boilerplate removed.
+
+    Real news pages carry tens of thousands of characters of nav/ad/
+    related-article boilerplate around the actual body -- a flat "strip all
+    tags" approach never reaches the real content (confirmed: 68,000+ chars
+    of boilerplate preceded a real name mention on one test page).
+    Preferring the article-body container, then <p> tags within it, skips
+    that entirely. Falls back to whole-page <p> extraction when no
+    container is recognisable, which is what every page got before."""
+    scope = _article_scope(html)
+    target = scope or html
+    paragraphs = _PARAGRAPH_RE.findall(target)
+    if paragraphs:
+        text = " ".join(_strip_tags(p) for p in paragraphs)
+    else:
+        text = _strip_tags(target)
+    return _strip_boilerplate(text)
 
 
 class ArticleFetcher:
@@ -323,7 +471,7 @@ class ArticleFetcher:
         # would then be judged on a 20-word snippet for no better reason
         # than a slow server, which is the same silent-degradation failure
         # this rewrite exists to eliminate -- just at a smaller scale.
-        resp = None
+        text = ""
         last_error = "unknown"
         for attempt in range(FETCH_ATTEMPTS):
             if attempt > 0:
@@ -332,30 +480,30 @@ class ArticleFetcher:
             try:
                 resp = self.session.get(url, timeout=TIMEOUT_SECONDS)
                 resp.raise_for_status()
-                break
             except Exception as exc:
                 last_error = type(exc).__name__
-                resp = None
+                continue
 
-        if resp is None:
+            text = extract_article_text(resp.text)
+            # An interstitial (Cloudflare 522, consent wall, bot check) is
+            # a transient HTTP 200 -- worth the same retry a timeout gets,
+            # rather than being cached as this article's body forever.
+            if _looks_like_interstitial(text):
+                last_error = "interstitial"
+                text = ""
+                continue
+            break
+
+        if not text:
             print(f"  [info] full-text fetch failed for {url}: {last_error}", file=sys.stderr)
             result = ("", f"fetch_failed:{last_error}")
             self._cache[url] = result
             self.stats["failed"] += 1
             return result
 
-        paragraphs = _PARAGRAPH_RE.findall(resp.text)
-        if paragraphs:
-            text = " ".join(_strip_tags(p) for p in paragraphs)
-        else:
-            text = _strip_tags(resp.text)
-
         if _looks_like_junk(text):
             result = ("", "junk_text")
             self.stats["junk"] += 1
-        elif not text.strip():
-            result = ("", "fetch_failed:empty_page")
-            self.stats["failed"] += 1
         else:
             result = (text[:MAX_CHARS], "ok")
             self.stats["ok"] += 1

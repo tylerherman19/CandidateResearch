@@ -12,6 +12,7 @@ verify_loose_matches chain used for live sweeps, against the stored
 backlog, deduped by (candidate_id, source_url) first since the same real
 rejection has been logged repeatedly across many sweep runs."""
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -30,7 +31,27 @@ from store.jsonl import append_items, append_rejections
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Resolve and re-check everything, print what WOULD be promoted, "
+            "write nothing. Use this first: the item store is append-only and "
+            "deduped by id, so an item stored once with a degraded "
+            "rules-tier classification (i.e. run without GEMINI_API_KEY) will "
+            "not be re-classified by simply running this again."
+        ),
+    )
+    parser.add_argument(
+        "--limit", type=int, default=0, help="Only reprocess the first N rejections (for spot checks)."
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     load_dotenv(ENV_PATH)
     candidates = load_candidates()
     candidates_by_id = {c["id"]: c for c in candidates}
@@ -51,7 +72,11 @@ def main() -> None:
             seen.add(key)
             to_reprocess.append(r)
 
-    print(f"Reprocessing {len(to_reprocess)} unique no_name_match rejections through full chain...")
+    if args.limit:
+        to_reprocess = to_reprocess[: args.limit]
+
+    mode = "DRY RUN -- nothing will be written" if args.dry_run else "LIVE -- results will be stored"
+    print(f"Reprocessing {len(to_reprocess)} unique no_name_match rejections through full chain [{mode}]...")
 
     resolved_items = []
     snippet_rejections = []
@@ -109,6 +134,14 @@ def main() -> None:
     for c in candidates:
         deduped.extend(cluster_items(by_candidate.get(c["id"], [])))
     print(f"After dedupe: {len(deduped)}")
+
+    if args.dry_run:
+        print(f"\nDRY RUN: {len(deduped)} item(s) would be classified and stored:")
+        for it in deduped:
+            print(" -", it["candidate_id"], "|", it.get("match_type"), "|", it["title"][:70])
+            print("      ", it.get("url_resolution", ""), "|", it.get("resolved_url") or it.get("source_url", ""))
+        print("\nNothing was written. Re-run without --dry-run (and WITH GEMINI_API_KEY set) to store.")
+        return
 
     classified = classify_items(deduped, candidates_map)
     new_items = append_items(classified)

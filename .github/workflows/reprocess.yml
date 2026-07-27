@@ -1,0 +1,60 @@
+# Manual backlog reprocessing. Separate from the daily sweep on purpose:
+# the sweep only ever looks at newly collected items, so a fix to matching
+# or text extraction does nothing for the rejections already on disk. This
+# is how those get a second look.
+#
+# Run it with dry_run=true first. The item store is append-only and deduped
+# by id, so an item stored once with a degraded rules-tier classification
+# (which is what you get if GEMINI_API_KEY is missing) will NOT be
+# re-classified by running this again -- it will simply be skipped as
+# already present.
+name: Reprocess Rejection Backlog
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only -- resolve, re-check, print, write nothing"
+        type: boolean
+        default: true
+      limit:
+        description: "Only reprocess the first N rejections (0 = all)"
+        type: string
+        default: "0"
+
+jobs:
+  reprocess:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Reprocess backlog
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+        run: |
+          python scripts/reprocess_rejections_full.py \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            --limit ${{ inputs.limit }}
+
+      - name: Commit recovered items
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          git config user.name "media-monitor-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "data: reprocess rejection backlog"
+          git push
