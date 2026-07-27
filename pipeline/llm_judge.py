@@ -31,6 +31,7 @@ import sys
 
 import requests
 
+from pipeline.fetch_text import _looks_like_junk
 from pipeline.resolve import passes_loose_match_gates
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -67,9 +68,21 @@ def _build_items_block(items: list, candidates_map: dict) -> str:
     for i, item in enumerate(items):
         info = candidates_map.get(item.get("candidate_id"), {})
         candidate_label = f"{info.get('name', item.get('candidate_id', ''))} ({info.get('office', '')})"
+        # Junk-filtering at fetch time (fetch_text.py) doesn't cover text
+        # that arrived some other way -- confirmed a real case: a stored
+        # rejection record carried WSJ paywall-nav junk baked into its
+        # `text` field from before that filter existed, a later fresh
+        # fetch attempt also correctly got filtered to "", but
+        # resolve_with_fetch_fallback then falls back to the item's
+        # ORIGINAL (still-junk) text rather than clearing it -- so the old
+        # junk reached the LLM untouched and it fell back to reasoning
+        # from the title alone again. Filtering here catches junk
+        # regardless of where the text came from.
+        raw_text = item.get("text") or ""
+        text = "" if _looks_like_junk(raw_text) else raw_text
         lines.append(
             f"{i + 1}. id={item['id']} | candidate={candidate_label} | "
-            f"title: {item.get('title', '')} | text: {(item.get('text') or '')[:8000]}"
+            f"title: {item.get('title', '')} | text: {text[:8000]}"
         )
     return "\n".join(lines)
 
