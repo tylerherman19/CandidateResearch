@@ -442,6 +442,11 @@ TEMPLATE = """<!doctype html>
 
 <div class="card">
   <h2>Daily hit volume (accepted items, by publish date)</h2>
+  <label for="chart-range">Range</label>
+  <select id="chart-range" aria-label="Chart date range">
+    <option value="90">Last 90 days</option>
+    <option value="all">All history</option>
+  </select>
   <div class="chart-legend" id="chart-legend"></div>
   <div class="chart-wrap">
     <svg id="chart" viewBox="0 0 900 260" width="100%" height="260" preserveAspectRatio="none"></svg>
@@ -643,8 +648,13 @@ function buildChart() {
 
   const toDay = iso => iso.slice(0, 10);
   const allDays = accepted.map(r => toDay(r.published_at));
-  const maxDay = new Date().toISOString().slice(0, 10);
-  const minDay = allDays.length ? allDays.reduce((a, b) => a < b ? a : b) : maxDay;
+  // Snapshot dates must not drift forward each time stale HTML is opened.
+  const maxDay = '__GENERATED_AT__'.slice(0, 10);
+  const windowStart = new Date(maxDay + 'T00:00:00Z');
+  windowStart.setUTCDate(windowStart.getUTCDate() - 89);
+  const minDay = document.getElementById('chart-range').value === 'all'
+    ? (allDays.length ? allDays.reduce((a, b) => a < b ? a : b) : maxDay)
+    : windowStart.toISOString().slice(0, 10);
 
   const days = [];
   for (let d = new Date(minDay + 'T00:00:00Z'); d <= new Date(maxDay + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1)) {
@@ -682,7 +692,7 @@ function buildChart() {
   const tickEvery = Math.max(1, Math.floor(days.length / 6));
   days.forEach((d, i) => {
     if (i % tickEvery === 0 || i === days.length - 1) {
-      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d.slice(5)}</text>`;
+      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === days.length - 1 ? 'end' : 'middle'}">${d}</text>`;
     }
   });
 
@@ -738,6 +748,7 @@ function buildChart() {
     crosshairLine.style.display = 'none';
   });
 }
+document.getElementById('chart-range').addEventListener('change', buildChart);
 buildChart();
 </script>
 </body>
