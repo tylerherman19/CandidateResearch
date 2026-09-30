@@ -54,10 +54,28 @@ jobs:
           META_AD_LIBRARY_TOKEN: ${{ secrets.META_AD_LIBRARY_TOKEN }}
         run: python run.py
 
-      - name: Commit updated data
+      - name: Verify dashboard freshness
+        run: |
+          python - <<'PYTHON'
+          import json, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from dashboard.generate import load_records
+          html = Path("docs/index.html").read_text(encoding="utf-8")
+          stamp = re.search(r"Generated ([0-9T:+.-]+)", html)
+          assert stamp, "Dashboard generation timestamp missing"
+          age = (datetime.now(timezone.utc) - datetime.fromisoformat(stamp[1])).total_seconds()
+          assert 0 <= age < 900, f"Dashboard is stale: {age:.0f} seconds old"
+          payload = re.search(r'<script type="application/json" id="data">(.*?)</script>', html, re.S)
+          assert payload, "Dashboard data missing"
+          assert json.loads(payload[1]) == load_records(), "Dashboard does not contain current stored records"
+          print("Fresh dashboard verified against current data")
+          PYTHON
+
+      - name: Commit updated data and dashboard
         run: |
           git config user.name "media-monitor-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/
-          git diff --cached --quiet || git commit -m "data: sweep $(date -u +'%F %H:%M UTC')"
+          git add data/ docs/index.html
+          git diff --cached --quiet || git commit -m "data and dashboard: sweep $(date -u +'%F %H:%M UTC')"
           git push
