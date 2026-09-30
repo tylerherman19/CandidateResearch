@@ -692,7 +692,7 @@ function buildChart() {
   const tickEvery = Math.max(1, Math.floor(days.length / 6));
   days.forEach((d, i) => {
     if (i % tickEvery === 0 || i === days.length - 1) {
-      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d}</text>`;
+      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === days.length - 1 ? 'end' : 'middle'}">${d}</text>`;
     }
   });
 
