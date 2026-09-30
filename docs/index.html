@@ -319,7 +319,7 @@
 </head>
 <body>
 <h1>Candidate Research Monitor</h1>
-<div class="subtitle">Generated 2026-09-30T17:24:12+00:00 &middot; includes backfilled history (collected_at approximated from each item's own publish date -- see backfill.py)</div>
+<div class="subtitle">Generated 2026-09-30T17:28:54+00:00 &middot; includes backfilled history (collected_at approximated from each item's own publish date -- see backfill.py)</div>
 
 <div class="card">
   <h2>Tracked names</h2>
@@ -539,7 +539,7 @@ function buildChart() {
   const toDay = iso => iso.slice(0, 10);
   const allDays = accepted.map(r => toDay(r.published_at));
   // Snapshot dates must not drift forward each time stale HTML is opened.
-  const maxDay = '2026-09-30T17:24:12+00:00'.slice(0, 10);
+  const maxDay = '2026-09-30T17:28:54+00:00'.slice(0, 10);
   const windowStart = new Date(maxDay + 'T00:00:00Z');
   windowStart.setUTCDate(windowStart.getUTCDate() - 89);
   const minDay = document.getElementById('chart-range').value === 'all'
@@ -582,7 +582,7 @@ function buildChart() {
   const tickEvery = Math.max(1, Math.floor(days.length / 6));
   days.forEach((d, i) => {
     if (i % tickEvery === 0 || i === days.length - 1) {
-      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle">${d}</text>`;
+      svgHtml += `<text x="${x(i)}" y="${H - 6}" text-anchor="${i === 0 ? 'start' : i === days.length - 1 ? 'end' : 'middle'}">${d}</text>`;
     }
   });
 
